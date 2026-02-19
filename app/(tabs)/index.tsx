@@ -83,49 +83,6 @@ export default function HomeScreen() {
     }
   };
 
-  const quickActions = [
-    { 
-      id: 1, 
-      icon: '🔍', 
-      label: 'Find Parking', 
-      color: '#10b981',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        handleSearchLocation();
-      }
-    },
-    { 
-      id: 2, 
-      icon: '📍', 
-      label: 'List Your Spot', 
-      color: '#3b82f6',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.push('/host');
-      }
-    },
-    { 
-      id: 3, 
-      icon: '📅', 
-      label: 'View Bookings', 
-      color: '#8b5cf6',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.push('/bookings');
-      }
-    },
-    { 
-      id: 4, 
-      icon: '💰', 
-      label: 'Wallet', 
-      color: '#f59e0b',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        Alert.alert('Wallet', 'Coming soon!');
-      }
-    },
-  ];
-
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header Section with Gradient */}
@@ -153,46 +110,116 @@ export default function HomeScreen() {
         </View>
       </LinearGradient>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <AnimatedListItem index={0} direction="down">
-          <TouchableOpacity 
-            style={styles.searchBar}
+      {/* Primary Action - Find Parking */}
+      <View style={styles.primaryActionContainer}>
+        <AnimatedListItem index={0} direction="up">
+          <TouchableOpacity
+            style={styles.primaryActionButton}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               handleSearchLocation();
             }}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
           >
-            <Text style={styles.searchIcon}>🔍</Text>
-            <Text style={styles.searchPlaceholder}>Search by address or area</Text>
+            <LinearGradient
+              colors={['#10b981', '#059669']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.primaryGradient}
+            >
+              <Text style={styles.primaryActionIcon}>🔍</Text>
+              <View style={styles.primaryActionContent}>
+                <Text style={styles.primaryActionTitle}>Find Parking</Text>
+                <Text style={styles.primaryActionSubtitle}>Search available spots nearby</Text>
+              </View>
+            </LinearGradient>
           </TouchableOpacity>
         </AnimatedListItem>
       </View>
 
       {/* Quick Action Buttons */}
       <View style={styles.quickActionsContainer}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.quickActionsGrid}>
-          {quickActions.map((action, index) => (
-            <AnimatedListItem key={action.id} index={index} direction="up">
-              <AnimatedPressableButton
-                style={styles.quickActionButton}
-                onPress={action.onPress}
-              >
-                <View style={[styles.quickActionIconBg, { backgroundColor: action.color }]}>
-                  <Text style={styles.quickActionIcon}>{action.icon}</Text>
-                </View>
-                <Text style={styles.quickActionLabel}>{action.label}</Text>
-              </AnimatedPressableButton>
-            </AnimatedListItem>
-          ))}
-        </View>
+        <Text style={styles.sectionTitle}>More Actions</Text>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickActionsScroll}
+        >
+          <AnimatedListItem index={1} direction="up">
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/host');
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.quickActionIconCircle, { backgroundColor: '#3b82f6' }]}>
+                <Text style={styles.quickActionCardIcon}>📍</Text>
+              </View>
+              <Text style={styles.quickActionCardTitle}>List Spot</Text>
+              <Text style={styles.quickActionCardSubtitle}>Earn money</Text>
+            </TouchableOpacity>
+          </AnimatedListItem>
+
+          <AnimatedListItem index={2} direction="up">
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/bookings');
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.quickActionIconCircle, { backgroundColor: '#8b5cf6' }]}>
+                <Text style={styles.quickActionCardIcon}>📅</Text>
+              </View>
+              <Text style={styles.quickActionCardTitle}>Bookings</Text>
+              <Text style={styles.quickActionCardSubtitle}>Your reservations</Text>
+            </TouchableOpacity>
+          </AnimatedListItem>
+
+          <AnimatedListItem index={3} direction="up">
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Alert.alert('Wallet', 'View your payment methods and transaction history.', [
+                  { text: 'OK' }
+                ]);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.quickActionIconCircle, { backgroundColor: '#f59e0b' }]}>
+                <Text style={styles.quickActionCardIcon}>💳</Text>
+              </View>
+              <Text style={styles.quickActionCardTitle}>Wallet</Text>
+              <Text style={styles.quickActionCardSubtitle}>Payments</Text>
+            </TouchableOpacity>
+          </AnimatedListItem>
+
+          <AnimatedListItem index={4} direction="up">
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Alert.alert('Support', 'Get help with your parking experience.');
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.quickActionIconCircle, { backgroundColor: '#ec4899' }]}>
+                <Text style={styles.quickActionCardIcon}>💬</Text>
+              </View>
+              <Text style={styles.quickActionCardTitle}>Support</Text>
+              <Text style={styles.quickActionCardSubtitle}>Get help</Text>
+            </TouchableOpacity>
+          </AnimatedListItem>
+        </ScrollView>
       </View>
 
       {/* Host Earnings Widget */}
       {isHost && (
-        <AnimatedListItem index={4} direction="up">
+        <AnimatedListItem index={5} direction="up">
           <TouchableOpacity 
             style={styles.earningsWidget}
             onPress={() => {
@@ -240,7 +267,7 @@ export default function HomeScreen() {
           contentContainerStyle={styles.nearbySpotsScroll}
         >
           {NEARBY_SPOTS.map((spot, index) => (
-            <AnimatedListItem key={spot.id} index={index + 5} direction="up">
+            <AnimatedListItem key={spot.id} index={index + 6} direction="up">
               <TouchableOpacity 
                 style={styles.nearbySpotCard}
                 onPress={() => {
@@ -274,7 +301,7 @@ export default function HomeScreen() {
       </View>
 
       {/* Current Location Quick Access */}
-      <AnimatedListItem index={9} direction="up">
+      <AnimatedListItem index={10} direction="up">
         <TouchableOpacity 
           style={styles.currentLocationButton}
           onPress={() => {
@@ -371,40 +398,48 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
 
-  // Search Bar
-  searchContainer: {
+  // Primary Action
+  primaryActionContainer: {
     paddingHorizontal: 20,
-    marginTop: -20,
+    marginTop: 24,
     marginBottom: 24,
   },
-  searchBar: {
+  primaryActionButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  primaryGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    paddingVertical: 24,
+    paddingHorizontal: 24,
+    gap: 16,
   },
-  searchIcon: {
-    fontSize: 20,
-    marginRight: 12,
+  primaryActionIcon: {
+    fontSize: 40,
   },
-  searchPlaceholder: {
-    fontSize: 16,
-    color: '#64748b',
+  primaryActionContent: {
+    flex: 1,
+  },
+  primaryActionTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: 'white',
+    marginBottom: 4,
+  },
+  primaryActionSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.9)',
     fontWeight: '500',
   },
 
   // Quick Actions
   quickActionsContainer: {
-    paddingHorizontal: 20,
     marginBottom: 24,
   },
   sectionTitle: {
@@ -412,14 +447,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: 'white',
     marginBottom: 16,
+    paddingHorizontal: 20,
   },
-  quickActionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  quickActionsScroll: {
+    paddingHorizontal: 20,
     gap: 12,
   },
-  quickActionButton: {
-    width: '48%',
+  quickActionCard: {
+    width: 140,
     backgroundColor: '#1e293b',
     borderRadius: 16,
     padding: 20,
@@ -432,22 +467,29 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  quickActionIconBg: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  quickActionIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
   },
-  quickActionIcon: {
-    fontSize: 28,
+  quickActionCardIcon: {
+    fontSize: 32,
   },
-  quickActionLabel: {
-    fontSize: 14,
+  quickActionCardTitle: {
+    fontSize: 15,
     fontWeight: '700',
     color: 'white',
     textAlign: 'center',
+    marginBottom: 4,
+  },
+  quickActionCardSubtitle: {
+    fontSize: 12,
+    color: '#94a3b8',
+    textAlign: 'center',
+    fontWeight: '500',
   },
 
   // Earnings Widget
