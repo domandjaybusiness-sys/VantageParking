@@ -287,38 +287,35 @@ export default function MapScreen() {
       </View>
 
       {/* Floating Filter Menu - Bottom Right */}
-      <View style={[styles.floatingFilterContainer, { bottom: insets.bottom + SPACING.lg }]}>
+      <View style={[styles.floatingFilterContainer, { bottom: insets.bottom + SPACING.md }]}>
         {!filterMenuExpanded ? (
-          // Collapsed state: Floating button
+          // Collapsed state: Compact floating button
           <TouchableOpacity
             style={styles.filterButton}
             onPress={() => setFilterMenuExpanded(true)}
             activeOpacity={0.8}
           >
-            <Text style={styles.filterButtonText}>🔧 Filter</Text>
+            <Text style={styles.filterButtonText}>⚡</Text>
             {selectedFilter && (
               <View style={styles.filterBadge}>
-                <Text style={styles.filterBadgeText}>1</Text>
+                <View style={styles.filterBadgeDot} />
               </View>
             )}
           </TouchableOpacity>
         ) : (
-          // Expanded state: Filter panel
+          // Expanded state: Compact filter panel
           <View style={styles.filterPanel}>
             <View style={styles.filterHeader}>
-              <Text style={styles.filterTitle}>Filters</Text>
+              <Text style={styles.filterTitle}>Filter</Text>
               <TouchableOpacity 
                 onPress={() => setFilterMenuExpanded(false)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Text style={styles.filterCloseText}>✕</Text>
               </TouchableOpacity>
             </View>
             
-            <ScrollView 
-              style={styles.filterOptions}
-              showsVerticalScrollIndicator={false}
-            >
+            <View style={styles.filterOptions}>
               {FILTER_OPTIONS.map((filter) => (
                 <TouchableOpacity
                   key={filter.id}
@@ -328,6 +325,7 @@ export default function MapScreen() {
                   ]}
                   onPress={() => {
                     setSelectedFilter(selectedFilter === filter.id ? null : filter.id);
+                    setFilterMenuExpanded(false);
                   }}
                   activeOpacity={0.7}
                 >
@@ -344,15 +342,18 @@ export default function MapScreen() {
                   )}
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+            </View>
 
             {selectedFilter && (
               <TouchableOpacity
                 style={styles.clearFilterButton}
-                onPress={() => setSelectedFilter(null)}
+                onPress={() => {
+                  setSelectedFilter(null);
+                  setFilterMenuExpanded(false);
+                }}
                 activeOpacity={0.8}
               >
-                <Text style={styles.clearFilterText}>Clear All</Text>
+                <Text style={styles.clearFilterText}>Clear</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -608,108 +609,110 @@ const styles = StyleSheet.create({
     zIndex: 15,
   },
   filterButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-    minHeight: 48,
-  },
-  filterButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  filterBadge: {
-    marginLeft: SPACING.xs,
-    backgroundColor: 'white',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
+    backgroundColor: COLORS.card,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  filterBadgeText: {
-    color: COLORS.primary,
-    fontSize: 12,
-    fontWeight: '700',
+  filterButtonText: {
+    fontSize: 18,
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+  },
+  filterBadgeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.primary,
+    borderWidth: 2,
+    borderColor: COLORS.background,
   },
   filterPanel: {
     backgroundColor: COLORS.card,
-    borderRadius: RADIUS.md,
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.sm,
+    borderRadius: RADIUS.sm,
+    padding: SPACING.xs,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 10,
-    minWidth: 200,
-    maxHeight: 400,
+    shadowRadius: 8,
+    elevation: 8,
+    minWidth: 160,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   filterHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: SPACING.sm,
-    marginBottom: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
+    paddingVertical: 4,
+    marginBottom: 4,
   },
   filterTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   filterCloseText: {
-    fontSize: 24,
+    fontSize: 18,
     color: COLORS.textMuted,
-    fontWeight: '300',
+    fontWeight: '400',
   },
   filterOptions: {
-    maxHeight: 300,
   },
   filterOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
-    borderRadius: RADIUS.sm,
-    marginBottom: 4,
-    minHeight: 44,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.xs,
+    borderRadius: 6,
+    marginBottom: 2,
+    minHeight: 36,
   },
   filterOptionActive: {
-    backgroundColor: COLORS.primary + '20',
+    backgroundColor: COLORS.primary + '15',
   },
   filterOptionText: {
-    fontSize: 15,
-    color: COLORS.text,
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
   filterOptionTextActive: {
     color: COLORS.primary,
     fontWeight: '600',
   },
   filterCheckmark: {
-    fontSize: 16,
+    fontSize: 14,
     color: COLORS.primary,
     fontWeight: '700',
   },
   clearFilterButton: {
-    marginTop: SPACING.sm,
-    paddingVertical: SPACING.xs,
-    paddingHorizontal: SPACING.sm,
-    borderRadius: RADIUS.sm,
+    marginTop: 4,
+    paddingVertical: 6,
+    paddingHorizontal: SPACING.xs,
+    borderRadius: 6,
     backgroundColor: COLORS.background,
     alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
   clearFilterText: {
     color: COLORS.textMuted,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   filterBackdrop: {
