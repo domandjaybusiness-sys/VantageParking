@@ -1,7 +1,8 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Design } from '@/constants/theme';
+import { deleteListing, getListings, Listing, subscribe } from '@/lib/listings';
 import { useRouter } from 'expo-router';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -13,23 +14,13 @@ import {
 
 export default function HostScreen() {
   const router = useRouter();
-  // placeholder data
-  const listings = [
-    {
-      id: '1',
-      name: 'Downtown Garage',
-      address: '123 Main St, Springfield',
-      price: 5,
-      status: 'Active',
-    },
-    {
-      id: '2',
-      name: 'Mall Lot',
-      address: '456 Center Ave, Springfield',
-      price: 3,
-      status: 'Paused',
-    },
-  ];
+  // Connect to listings store
+  const [listings, setListings] = useState<Listing[]>(() => getListings() as Listing[]);
+  
+  useEffect(() => {
+    const unsub = subscribe((items) => setListings(items as Listing[]));
+    return unsub;
+  }, []);
 
   const totalBookings = 27; // pretend
   const totalEarnings = 1425.5; // pretend
@@ -51,8 +42,8 @@ const [showEarnings, setShowEarnings] = React.useState(false);
     { id: 'd', title: 'Guest: Dave', date: 'Feb 14' },
   ];
 
-  const onListingPress = (listing: typeof listings[0]) => {
-    Alert.alert('Listing tapped', listing.name);
+  const onListingPress = (listing: Listing) => {
+    Alert.alert('Listing tapped', listing.title);
     // navigate to edit/availability etc.
   };
   
@@ -106,10 +97,10 @@ const [showEarnings, setShowEarnings] = React.useState(false);
           android_ripple={{ color: '#eee' }}>
           <View style={styles.listingThumb} />
           <View style={styles.listingInfo}>
-            <Text style={styles.listingName}>{l.name}</Text>
+            <Text style={styles.listingName}>{l.title}</Text>
             <Text style={styles.listingAddress}>{l.address}</Text>
           </View>
-          <Text style={styles.listingPrice}>${l.price}/hr</Text>
+          <Text style={styles.listingPrice}>${(l.pricePerHour ?? 0).toFixed(0)}/hr</Text>
           <View
             style={[
               styles.statusBadge,
@@ -119,10 +110,17 @@ const [showEarnings, setShowEarnings] = React.useState(false);
               style={
                 l.status === 'Active' ? styles.statusTextActive : styles.statusTextPaused
               }>
-              {l.status}
+              {l.status || 'Active'}
             </Text>
           </View>
-          <IconSymbol name="square.and.pencil" size={18} color="#999" />
+          <Pressable onPress={() => {
+            Alert.alert('Delete spot', 'Are you sure?', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => deleteListing(l.id) },
+            ]);
+          }} hitSlop={8} style={{ marginLeft: 8 }}>
+            <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '600' }}>Delete</Text>
+          </Pressable>
         </Pressable>
       ))}
 

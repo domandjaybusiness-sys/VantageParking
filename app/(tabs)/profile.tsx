@@ -1,4 +1,5 @@
 import { IconSymbol, IconSymbolName } from '@/components/ui/icon-symbol';
+import { clearAuth } from '@/lib/auth';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -45,9 +46,9 @@ export default function ProfileScreen() {
         {
           text: 'Log Out',
           style: 'destructive',
-          onPress: () => {
-            // In production: auth.signOut() or similar
-            Alert.alert('Logged out', 'You have been logged out successfully');
+          onPress: async () => {
+            await clearAuth();
+            router.replace('/(auth)/login');
           },
         },
       ]

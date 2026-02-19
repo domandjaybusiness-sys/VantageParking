@@ -1,21 +1,46 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
+import { isAuthenticated } from '@/lib/auth';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const router = useRouter();
+  const segments = useSegments();
+  const navigationState = useRootNavigationState();
+
+  useEffect(() => {
+    if (!navigationState?.key) return;
+
+    async function checkAuth() {
+      const authed = await isAuthenticated();
+      const inAuthGroup = segments[0] === '(auth)';
+      
+      // Only redirect if user tries to access protected routes while not authenticated
+      if (!authed && segments[0] === '(tabs)') {
+        console.log('🚫 Attempting to access tabs without auth, redirecting to login');
+        router.replace('/(auth)/login');
+      } else if (authed && inAuthGroup && segments.length > 1) {
+        // If authenticated and in auth screens (not counting initial load), go to tabs
+        console.log('✅ Already authenticated, redirecting to tabs');
+        router.replace('/(tabs)');
+      }
+    }
+    
+    checkAuth();
+  }, [segments]);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="add-listing" options={{ presentation: 'modal', headerShown: true, title: 'Add New Spot' }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />
