@@ -1,104 +1,141 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useTheme } from '@/contexts/ThemeContext';
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function WalletScreen() {
   const router = useRouter();
-  const [balance] = useState(47.50);
-  
-  const transactions = [
-    { id: 1, title: 'Parking - Market St', date: 'Feb 18, 2026', amount: -12.50, status: 'completed' },
-    { id: 2, title: 'Parking - Marina District', date: 'Feb 15, 2026', amount: -8.00, status: 'completed' },
-    { id: 3, title: 'Added funds', date: 'Feb 10, 2026', amount: 50.00, status: 'completed' },
-    { id: 4, title: 'Parking - Valencia St', date: 'Feb 8, 2026', amount: -15.00, status: 'completed' },
-  ];
-
-  const paymentMethods = [
-    { id: 1, type: 'Visa', last4: '4242', isDefault: true },
-    { id: 2, type: 'Mastercard', last4: '8888', isDefault: false },
-  ];
-
-  const handleAddFunds = () => {
-    Alert.prompt(
-      'Add Funds',
-      'Enter amount to add to your wallet',
-      (text) => {
-        const amount = parseFloat(text);
-        if (amount > 0) {
-          Alert.alert('Success', `$${amount.toFixed(2)} added to your wallet`);
-        }
-      },
-      'plain-text',
-      '',
-      'numeric'
-    );
-  };
+  const { colors } = useTheme();
+  const [totalEarnings, setTotalEarnings] = useState(0);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const handleAddPaymentMethod = () => {
-    Alert.alert('Add Payment Method', 'Payment method screen coming soon');
+    Alert.alert('Add Payment Method', 'Payment method setup coming soon');
   };
 
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const fetchWallet = async () => {
+      setLoading(true);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setTotalEarnings(0);
+        setTransactions([]);
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('host_id', user.id)
+        .eq('status', 'paid')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        setTotalEarnings(0);
+        setTransactions([]);
+        setLoading(false);
+        return;
+      }
+
+      const rows = data ?? [];
+      const sum = rows.reduce((acc, row) => acc + Number(row?.amount ?? 0), 0);
+      setTotalEarnings(sum);
+      setTransactions(rows);
+      setLoading(false);
+    };
+
+    fetchWallet();
+
+    channel = supabase
+      .channel('bookings-wallet')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        fetchWallet();
+      })
+      .subscribe();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const renderedTransactions = useMemo(
+    () => transactions.map((transaction) => {
+      const raw = transaction?.paid_at ?? transaction?.created_at ?? transaction?.start_time;
+      const date = raw ? new Date(raw).toLocaleDateString() : '—';
+      return {
+        id: transaction?.id ?? `${transaction?.spot_id ?? ''}-${date}`,
+        title: transaction?.spot_name ?? transaction?.spot_title ?? transaction?.address ?? 'Parking',
+        date,
+        amount: Number(transaction?.amount ?? 0),
+      };
+    }),
+    [transactions]
+  );
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}
+    >
+      <View style={[styles.header, { backgroundColor: colors.backgroundCard }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <IconSymbol name="chevron.left" size={24} color="#10b981" />
+          <IconSymbol name="chevron.left" size={24} color={colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Wallet</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Wallet</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView style={styles.content}>
         {/* Balance Card */}
-        <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Available Balance</Text>
-          <Text style={styles.balanceAmount}>${balance.toFixed(2)}</Text>
-          <TouchableOpacity style={styles.addFundsButton} onPress={handleAddFunds}>
-            <Text style={styles.addFundsText}>Add Funds</Text>
-          </TouchableOpacity>
+        <View style={[styles.balanceCard, { backgroundColor: colors.backgroundCard }]}
+        >
+          <Text style={[styles.balanceLabel, { color: colors.textSecondary }]}>Total Earnings</Text>
+          <Text style={[styles.balanceAmount, { color: colors.primary }]}>
+            {loading ? '—' : `$${totalEarnings.toFixed(2)}`}
+          </Text>
+          <Text style={[styles.balanceHint, { color: colors.textSecondary }]}>Paid bookings only</Text>
         </View>
 
         {/* Payment Methods */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Payment Methods</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Payment Methods</Text>
             <TouchableOpacity onPress={handleAddPaymentMethod}>
-              <Text style={styles.addButton}>+ Add</Text>
+              <Text style={[styles.addButton, { color: colors.primary }]}>+ Add</Text>
             </TouchableOpacity>
           </View>
 
-          {paymentMethods.map((method) => (
-            <View key={method.id} style={styles.paymentCard}>
-              <View style={styles.paymentCardContent}>
-                <IconSymbol name="creditcard" size={24} color="#10b981" />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.paymentType}>{method.type} •••• {method.last4}</Text>
-                  {method.isDefault && (
-                    <Text style={styles.defaultBadge}>Default</Text>
-                  )}
-                </View>
-              </View>
-            </View>
-          ))}
+          <View style={[styles.paymentCard, { backgroundColor: colors.background }]}
+          >
+            <Text style={[styles.paymentEmptyText, { color: colors.textSecondary }]}>No payment methods on file.</Text>
+          </View>
         </View>
 
         {/* Transaction History */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Transactions</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Transactions</Text>
           
-          {transactions.map((transaction) => (
-            <View key={transaction.id} style={styles.transactionCard}>
+          {!loading && renderedTransactions.length === 0 && (
+            <View style={[styles.transactionCard, { backgroundColor: colors.background }]}
+            >
+              <Text style={[styles.transactionDate, { color: colors.textSecondary }]}>No paid bookings yet.</Text>
+            </View>
+          )}
+
+          {renderedTransactions.map((transaction) => (
+            <View key={transaction.id} style={[styles.transactionCard, { backgroundColor: colors.background }]}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.transactionTitle}>{transaction.title}</Text>
-                <Text style={styles.transactionDate}>{transaction.date}</Text>
+                <Text style={[styles.transactionTitle, { color: colors.text }]}>{transaction.title}</Text>
+                <Text style={[styles.transactionDate, { color: colors.textSecondary }]}>{transaction.date}</Text>
               </View>
-              <Text style={[
-                styles.transactionAmount,
-                transaction.amount > 0 ? styles.transactionPositive : styles.transactionNegative
-              ]}>
-                {transaction.amount > 0 ? '+' : ''}{transaction.amount.toFixed(2)}
-              </Text>
+              <Text style={[styles.transactionAmount, { color: colors.primary }]}>${transaction.amount.toFixed(2)}</Text>
             </View>
           ))}
         </View>
@@ -110,7 +147,6 @@ export default function WalletScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0b1220',
   },
   header: {
     flexDirection: 'row',
@@ -119,7 +155,6 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 16,
     paddingHorizontal: 16,
-    backgroundColor: '#1f2937',
   },
   backButton: {
     padding: 4,
@@ -127,14 +162,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: 'white',
   },
   content: {
     flex: 1,
     padding: 16,
   },
   balanceCard: {
-    backgroundColor: '#1f2937',
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
@@ -142,25 +175,15 @@ const styles = StyleSheet.create({
   },
   balanceLabel: {
     fontSize: 14,
-    color: '#94a3b8',
     marginBottom: 8,
   },
   balanceAmount: {
     fontSize: 48,
     fontWeight: '700',
-    color: '#10b981',
     marginBottom: 16,
   },
-  addFundsButton: {
-    backgroundColor: '#10b981',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 8,
-  },
-  addFundsText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
+  balanceHint: {
+    fontSize: 12,
   },
   section: {
     marginBottom: 24,
@@ -174,36 +197,21 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: 'white',
     marginBottom: 12,
   },
   addButton: {
-    color: '#10b981',
     fontSize: 16,
     fontWeight: '600',
   },
   paymentCard: {
-    backgroundColor: '#0f172a',
     borderRadius: 12,
     padding: 16,
     marginBottom: 8,
   },
-  paymentCardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  paymentType: {
-    fontSize: 16,
-    color: 'white',
-    fontWeight: '600',
-  },
-  defaultBadge: {
-    fontSize: 12,
-    color: '#10b981',
-    marginTop: 4,
+  paymentEmptyText: {
+    fontSize: 14,
   },
   transactionCard: {
-    backgroundColor: '#0f172a',
     borderRadius: 12,
     padding: 16,
     marginBottom: 8,
@@ -212,22 +220,14 @@ const styles = StyleSheet.create({
   },
   transactionTitle: {
     fontSize: 16,
-    color: 'white',
     fontWeight: '600',
     marginBottom: 4,
   },
   transactionDate: {
     fontSize: 14,
-    color: '#94a3b8',
   },
   transactionAmount: {
     fontSize: 18,
     fontWeight: '700',
-  },
-  transactionPositive: {
-    color: '#10b981',
-  },
-  transactionNegative: {
-    color: '#94a3b8',
   },
 });

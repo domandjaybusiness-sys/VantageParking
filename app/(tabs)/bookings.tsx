@@ -1,7 +1,8 @@
 import { AnimatedListItem } from '@/components/ui/animated-list-item';
 import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -12,90 +13,32 @@ import {
   View
 } from 'react-native';
 
-// Mock booking data
-const MOCK_BOOKINGS = [
-  {
-    id: 1,
-    spotName: 'Downtown Lot A',
-    address: '123 Market St, San Francisco',
-    date: 'Today',
-    timeStart: '2:00 PM',
-    timeEnd: '6:00 PM',
-    hours: 4,
-    pricePerHour: 8.5,
-    totalPrice: 34.0,
-    status: 'Active',
-    checkInCode: 'GATE1234',
-    instructions: 'Park on left side. Gate code required.',
-    fees: 2.5,
-    type: 'upcoming',
-    startTime: new Date(Date.now() - 30 * 60 * 1000), // 30 mins ago
-    endTime: new Date(Date.now() + 3.5 * 60 * 60 * 1000), // 3.5 hours from now
-    isActive: true,
-  },
-  {
-    id: 2,
-    spotName: 'Marina Garage',
-    address: '456 Marina Blvd, San Francisco',
-    date: 'Tomorrow',
-    timeStart: '10:00 AM',
-    timeEnd: '1:00 PM',
-    hours: 3,
-    pricePerHour: 12.0,
-    totalPrice: 36.0,
-    status: 'Confirmed',
-    checkInCode: 'GATE5678',
-    instructions: 'Use entrance on north side.',
-    fees: 0,
-    type: 'upcoming',
-    startTime: new Date(Date.now() + 20 * 60 * 60 * 1000), // 20 hours from now
-    endTime: new Date(Date.now() + 23 * 60 * 60 * 1000),
-    isActive: false,
-  },
-  {
-    id: 3,
-    spotName: 'Mission District',
-    address: '789 Valencia St, San Francisco',
-    date: 'Feb 15',
-    timeStart: '6:00 PM',
-    timeEnd: '10:00 PM',
-    hours: 4,
-    pricePerHour: 6.0,
-    totalPrice: 24.0,
-    status: 'Completed',
-    checkInCode: 'GATE9999',
-    instructions: 'Lot B, Level 2.',
-    fees: 1.0,
-    type: 'past',
-    startTime: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-    endTime: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000),
-    isActive: false,
-  },
-  {
-    id: 4,
-    spotName: 'Financial District',
-    address: '321 Battery St, San Francisco',
-    date: 'Feb 12',
-    timeStart: '8:00 AM',
-    timeEnd: '5:00 PM',
-    hours: 9,
-    pricePerHour: 10.0,
-    totalPrice: 90.0,
-    status: 'Completed',
-    checkInCode: 'GATE7777',
-    instructions: 'Enter from Battery St entrance.',
-    fees: 5.0,
-    type: 'past',
-    startTime: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
-    endTime: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000),
-    isActive: false,
-  },
-];
+type BookingItem = {
+  id: string;
+  spotName: string;
+  address: string;
+  date: string;
+  timeStart: string;
+  timeEnd: string;
+  hours: number;
+  pricePerHour: number;
+  totalPrice: number;
+  status: string;
+  checkInCode: string;
+  instructions: string;
+  fees: number;
+  type: 'upcoming' | 'past';
+  startTime: Date;
+  endTime: Date;
+  isActive: boolean;
+};
 
 export default function BookingsScreen() {
   const { colorScheme, colors } = useTheme();
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
-  const [selectedBooking, setSelectedBooking] = useState<(typeof MOCK_BOOKINGS)[0] | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(null);
+  const [bookings, setBookings] = useState<BookingItem[]>([]);
+  const [loadingBookings, setLoadingBookings] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Update timer every minute
@@ -106,15 +49,97 @@ export default function BookingsScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  const filteredBookings = MOCK_BOOKINGS.filter((b) => {
-    if (activeTab === 'upcoming') return b.type === 'upcoming';
-    if (activeTab === 'past') return b.type === 'past';
-    return false;
-  });
+  useEffect(() => {
+    const fetchBookings = async () => {
+      setLoadingBookings(true);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-  const activeBooking = MOCK_BOOKINGS.find(b => b.isActive);
-  const upcomingCount = MOCK_BOOKINGS.filter(b => b.type === 'upcoming').length;
-  const totalSpent = MOCK_BOOKINGS.filter(b => b.type === 'past').reduce((sum, b) => sum + b.totalPrice, 0);
+      if (!user) {
+        setBookings([]);
+        setLoadingBookings(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .or(`guest_id.eq.${user.id},user_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        setBookings([]);
+        setLoadingBookings(false);
+        return;
+      }
+
+      const now = Date.now();
+      const mapped = (data ?? []).map((row: any) => {
+        const startRaw = row?.start_time ?? row?.startTime ?? row?.date ?? row?.created_at;
+        const endRaw = row?.end_time ?? row?.endTime;
+        const start = startRaw ? new Date(startRaw) : new Date();
+        const end = endRaw ? new Date(endRaw) : new Date(start.getTime() + 60 * 60 * 1000);
+        const hours = Number(row?.hours ?? Math.max(1, Math.round(((end.getTime() - start.getTime()) / 3600000) * 10) / 10));
+        const status = String(row?.status ?? 'Pending');
+        const statusLower = status.toLowerCase();
+        const isActive = statusLower === 'active';
+        const isPast = ['paid', 'completed', 'cancelled'].includes(statusLower) || end.getTime() < now;
+
+        return {
+          id: String(row?.id ?? ''),
+          spotName: row?.spot_name ?? row?.spot_title ?? row?.spotName ?? row?.address ?? 'Parking Spot',
+          address: row?.address ?? 'Address unavailable',
+          date: start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          timeStart: start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timeEnd: end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          hours,
+          pricePerHour: Number(row?.price_per_hour ?? row?.pricePerHour ?? row?.price ?? 0),
+          totalPrice: Number(row?.amount ?? row?.total ?? 0),
+          status,
+          checkInCode: row?.check_in_code ?? row?.checkInCode ?? '—',
+          instructions: row?.instructions ?? row?.notes ?? 'No instructions provided.',
+          fees: Number(row?.fees ?? 0),
+          type: isPast ? 'past' : 'upcoming',
+          startTime: start,
+          endTime: end,
+          isActive,
+        } as BookingItem;
+      });
+
+      setBookings(mapped);
+      setLoadingBookings(false);
+    };
+
+    fetchBookings();
+
+    const channel = supabase
+      .channel('bookings-guest')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        fetchBookings();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const filteredBookings = useMemo(() => (
+    bookings.filter((b) => {
+      if (activeTab === 'upcoming') return b.type === 'upcoming';
+      if (activeTab === 'past') return b.type === 'past';
+      return false;
+    })
+  ), [activeTab, bookings]);
+
+  const activeBooking = useMemo(() => bookings.find(b => b.isActive), [bookings]);
+  const upcomingCount = useMemo(() => bookings.filter(b => b.type === 'upcoming').length, [bookings]);
+  const pastCount = useMemo(() => bookings.filter(b => b.type === 'past').length, [bookings]);
+  const totalSpent = useMemo(
+    () => bookings.filter(b => b.type === 'past').reduce((sum, b) => sum + b.totalPrice, 0),
+    [bookings]
+  );
 
   const getTimeRemaining = (endTime: Date) => {
     const diff = endTime.getTime() - currentTime.getTime();
@@ -139,11 +164,35 @@ export default function BookingsScreen() {
   };
 
   const getStatusColor = (status: string) => {
-    if (status === 'Active') return colors.badgeConfirmed;
-    if (status === 'Confirmed') return colorScheme === 'dark' ? '#60a5fa' : '#3b82f6';
-    if (status === 'Pending') return colors.badgePending;
-    if (status === 'Completed') return colors.textSecondary;
-    return colors.badgeCancelled;
+    const s = status.toLowerCase();
+    if (s === 'active') return colors.badgeConfirmed;
+    if (s === 'confirmed') return colorScheme === 'dark' ? '#60a5fa' : '#3b82f6';
+    if (s === 'pending') return colors.badgePending;
+    if (s === 'paid' || s === 'completed') return colors.textSecondary;
+    if (s === 'cancelled') return colors.badgeCancelled;
+    return colors.textSecondary;
+  };
+
+  const updateBookingStatus = async (bookingId: string, status: 'paid' | 'cancelled' | 'confirmed') => {
+    const updates: Record<string, any> = { status };
+    if (status === 'paid') {
+      updates.paid_at = new Date().toISOString();
+    }
+    if (status === 'cancelled') {
+      updates.cancelled_at = new Date().toISOString();
+    }
+
+    const { error } = await supabase
+      .from('bookings')
+      .update(updates)
+      .eq('id', bookingId);
+
+    if (error) {
+      Alert.alert('Update failed', error.message);
+      return false;
+    }
+
+    return true;
   };
 
   return (
@@ -166,7 +215,7 @@ export default function BookingsScreen() {
           <View style={[styles.statCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
           >
             <Text style={[styles.statValue, { color: colors.primary }]}>
-              {MOCK_BOOKINGS.filter(b => b.type === 'past').length}
+              {pastCount}
             </Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Completed</Text>
           </View>
@@ -255,7 +304,7 @@ export default function BookingsScreen() {
                     activeTab === tab && styles.tabBadgeTextActive,
                   ]}
                 >
-                  {tab === 'upcoming' ? upcomingCount : MOCK_BOOKINGS.filter(b => b.type === 'past').length}
+                  {tab === 'upcoming' ? upcomingCount : pastCount}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -335,9 +384,34 @@ export default function BookingsScreen() {
                         styles.buttonOutline,
                         { borderColor: colors.badgeCancelled }
                       ]}
-                      onPress={() => Alert.alert('Cancel', 'Cancel this booking?')}
+                      onPress={() => {
+                        Alert.alert('Cancel Booking', 'Cancel this booking?', [
+                          { text: 'Keep', style: 'cancel' },
+                          {
+                            text: 'Cancel Booking',
+                            style: 'destructive',
+                            onPress: async () => {
+                              await updateBookingStatus(item.id, 'cancelled');
+                            }
+                          }
+                        ]);
+                      }}
                     >
                       <Text style={[styles.buttonOutlineText, { color: colors.badgeCancelled }]}>Cancel</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {activeTab === 'upcoming' && item.status.toLowerCase() !== 'paid' && item.status.toLowerCase() !== 'cancelled' && (
+                    <TouchableOpacity 
+                      style={[styles.buttonSmall, styles.buttonPrimary, { backgroundColor: colors.primary }]}
+                      onPress={async () => {
+                        const ok = await updateBookingStatus(item.id, 'paid');
+                        if (ok) {
+                          Alert.alert('Confirmed', 'Booking marked as paid.');
+                        }
+                      }}
+                    >
+                      <Text style={styles.buttonPrimaryText}>Confirm</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -366,17 +440,23 @@ export default function BookingsScreen() {
         <View style={[styles.detailsContainer, { backgroundColor: colors.background }]}>
           {/* Reserve Button */}
           <View style={[styles.modalHeader, { backgroundColor: colors.backgroundCard, borderBottomColor: colors.border }]}>
-            <TouchableOpacity
-              style={[styles.reserveButton, { backgroundColor: colors.primary }]}
-              onPress={() => {
-                if (selectedBooking) {
-                  alert(`Reserved: ${selectedBooking.spotName} for $${selectedBooking.totalPrice.toFixed(2)}`);
-                  setSelectedBooking(null);
-                }
-              }}
-            >
-              <Text style={styles.reserveButtonText}>Reserve Now</Text>
-            </TouchableOpacity>
+            {selectedBooking && selectedBooking.status.toLowerCase() !== 'paid' && selectedBooking.status.toLowerCase() !== 'cancelled' && (
+              <TouchableOpacity
+                style={[styles.reserveButton, { backgroundColor: colors.primary }]}
+                onPress={async () => {
+                  const ok = await updateBookingStatus(selectedBooking.id, 'paid');
+                  if (ok) {
+                    Alert.alert('Confirmed', 'Booking marked as paid.');
+                    setSelectedBooking(null);
+                  }
+                }}
+              >
+                <Text style={styles.reserveButtonText}>Confirm Booking</Text>
+              </TouchableOpacity>
+            )}
+            {selectedBooking && (selectedBooking.status.toLowerCase() === 'paid' || selectedBooking.status.toLowerCase() === 'cancelled') && (
+              <Text style={[styles.reserveButtonText, { color: colors.textSecondary }]}>No actions available</Text>
+            )}
           </View>
 
           <ScrollView contentContainerStyle={styles.detailsContent}>
@@ -469,7 +549,20 @@ export default function BookingsScreen() {
                           styles.buttonCancel,
                           { backgroundColor: colors.badgeCancelled, marginTop: 12 }
                         ]}
-                        onPress={() => {/* cancel logic */}}
+                        onPress={() => {
+                          if (!selectedBooking) return;
+                          Alert.alert('Cancel Booking', 'Are you sure you want to cancel?', [
+                            { text: 'Keep', style: 'cancel' },
+                            {
+                              text: 'Cancel Booking',
+                              style: 'destructive',
+                              onPress: async () => {
+                                const ok = await updateBookingStatus(selectedBooking.id, 'cancelled');
+                                if (ok) setSelectedBooking(null);
+                              }
+                            }
+                          ]);
+                        }}
                       >
                         <Text style={styles.buttonCancelText}>Cancel Booking</Text>
                       </TouchableOpacity>
@@ -512,6 +605,11 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   statValue: {
     fontSize: 24,
@@ -649,6 +747,11 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   bookingCardActive: {
     borderWidth: 2,

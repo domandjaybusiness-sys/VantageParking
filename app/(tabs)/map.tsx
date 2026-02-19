@@ -1,7 +1,9 @@
 import { useTheme } from '@/contexts/ThemeContext';
-import { getListings, Listing, subscribe } from '@/lib/listings';
+import { Listing, mapSpotRow } from '@/lib/listings';
+import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
+import { supabase } from '@/lib/supabase';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, Modal, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,7 +23,6 @@ const RADIUS = {
   lg: 16,
   xl: 24,
 };
-
 
 // Simple function to calculate distance between two points
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -45,17 +46,20 @@ const FILTER_OPTIONS = [
 export default function MapScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [filteredSpots, setFilteredSpots] = useState<Listing[]>(() => (getListings() as Listing[]).filter(s => s.latitude != null && s.longitude != null));
+  const [filteredSpots, setFilteredSpots] = useState<Listing[]>([]);
   const [selectedSpot, setSelectedSpot] = useState<Listing | null>(null);
   const [slideAnim] = useState(new Animated.Value(300));
   const [zoomLevel, setZoomLevel] = useState(1);
   const [searchActive, setSearchActive] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [mapPickLoading, setMapPickLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<{ id: string; title: string; lat: number; lng: number }[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [mapRef, setMapRef] = useState<MapView | null>(null);
   const [searchLocation, setSearchLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickedLocation, setPickedLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [pinEnabled, setPinEnabled] = useState(true);
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
@@ -88,31 +92,46 @@ export default function MapScreen() {
     }
   }, [params.lat, params.lng, mapRef]);
 
-  useEffect(() => {
-    // Subscribe to listings store updates
-    const update = (all: Listing[]) => {
-      // Filter out listings without coordinates
-      const withCoords = all.filter((spot) => spot.latitude != null && spot.longitude != null);
-      if (searchLocation) {
-        const nearby = withCoords.filter((spot) => {
+  const fetchSpots = useCallback(async () => {
+    const { data, error } = await supabase.from('spots').select('*');
+    if (error) {
+      setFilteredSpots([]);
+      return;
+    }
+
+    const mapped = (data ?? []).map(mapSpotRow);
+    const withCoords = mapped.filter((spot) => spot.latitude != null && spot.longitude != null);
+
+    if (searchLocation) {
+      const nearby = withCoords
+        .filter((spot) => {
           const distance = calculateDistance(searchLocation.lat, searchLocation.lng, spot.latitude!, spot.longitude!);
           return distance < 5; // Within 5 miles
-        }).sort((a, b) => {
+        })
+        .sort((a, b) => {
           const distA = calculateDistance(searchLocation.lat, searchLocation.lng, a.latitude!, a.longitude!);
           const distB = calculateDistance(searchLocation.lat, searchLocation.lng, b.latitude!, b.longitude!);
           return distA - distB;
         });
-        setFilteredSpots(nearby.length > 0 ? nearby : withCoords);
-      } else {
-        setFilteredSpots(withCoords);
-      }
-    };
-
-    // Initial load
-    update(getListings() as Listing[]);
-    const unsub = subscribe(update);
-    return unsub;
+      setFilteredSpots(nearby.length > 0 ? nearby : withCoords);
+    } else {
+      setFilteredSpots(withCoords);
+    }
   }, [searchLocation]);
+
+  useEffect(() => {
+    fetchSpots();
+    const channel = supabase
+      .channel('spots-map')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'spots' }, () => {
+        fetchSpots();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchSpots]);
 
   const handleMarkerPress = (spot: Listing) => {
     setSelectedSpot(spot);
@@ -162,11 +181,16 @@ export default function MapScreen() {
   ).current;
 
   const handleReserve = (spot: Listing) => {
+    const computedRate = computeHourlyRate({
+      baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
+      address: spot.address,
+      startTime: new Date(),
+    });
     const start = new Date();
     const end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hour
     setReservationStart(start);
     setReservationEnd(end);
-    setReservationTotal(spot.pricePerHour * 1); // 1 hour by default
+    setReservationTotal(computedRate * 1); // 1 hour by default
     setPaymentModalVisible(true);
   };
 
@@ -190,6 +214,51 @@ export default function MapScreen() {
       }, 1000);
     }
   };
+
+  const buildAddressLabel = (props: any) => (
+    [
+      props?.housenumber,
+      props?.name || props?.street,
+      props?.city || props?.town || props?.village,
+      props?.state,
+      props?.postcode,
+    ].filter(Boolean).join(', ')
+  );
+
+  const handleCoordinatePick = useCallback(async (latitude: number, longitude: number) => {
+    setSearchActive(false);
+    setSearchResults([]);
+    setSearchError(null);
+    setMapPickLoading(true);
+    setSearchLocation({ lat: latitude, lng: longitude });
+    setPickedLocation({ lat: latitude, lng: longitude });
+
+    try {
+      const url = `https://photon.komoot.io/reverse?lat=${latitude}&lon=${longitude}&limit=1&lang=en`;
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const json = await res.json();
+      const feature = json?.features?.[0];
+      const label = buildAddressLabel(feature?.properties);
+      setSearchText(label || `Dropped pin (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+    } catch (error) {
+      setSearchText(`Dropped pin (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+    } finally {
+      setMapPickLoading(false);
+    }
+  }, []);
+
+  const handleMapPress = async (event: any) => {
+    if (!pinEnabled) return;
+    const { latitude, longitude } = event?.nativeEvent?.coordinate ?? {};
+    if (typeof latitude !== 'number' || typeof longitude !== 'number') return;
+    handleCoordinatePick(latitude, longitude);
+  };
+
+  const searchBarLabel = mapPickLoading
+    ? 'Locating address...'
+    : searchText
+      ? `📍 ${searchText}`
+      : '🔍 Find parking near…';
 
   useEffect(() => {
     if (!searchActive) return;
@@ -254,21 +323,56 @@ export default function MapScreen() {
     return () => clearTimeout(timeout);
   }, [searchText, searchActive]);
 
-  const appliedSpots = filteredSpots.filter((s) => {
-    if (selectedFilters.length === 0) return true;
-    
+  const appliedSpots = useMemo(() => {
+    if (selectedFilters.length === 0) return filteredSpots;
+
     // Apply all filters - spot must match ALL selected filters (AND logic)
-    return selectedFilters.every((filterId) => {
+    return filteredSpots.filter((s) => selectedFilters.every((filterId) => {
       if (filterId === 'under10') return (s.pricePerHour ?? 0) < 10;
       if (filterId === 'available') return true; // demo: all available
       if (filterId === 'driveway') return s.title.toLowerCase().includes('driveway');
       if (filterId === 'garage') return s.title.toLowerCase().includes('garage');
       return true;
+    }));
+  }, [filteredSpots, selectedFilters]);
+
+  const sortedSpots = useMemo(() => (
+    [...appliedSpots].sort((a, b) => (a.pricePerHour ?? 0) - (b.pricePerHour ?? 0))
+  ), [appliedSpots]);
+
+  const renderListItem = useCallback(({ item }: { item: Listing }) => {
+    const computedRate = computeHourlyRate({
+      baseRate: item.pricePerHour ?? DEFAULT_BASE_RATE,
+      address: item.address,
+      startTime: new Date(),
     });
-  });
+
+    return (
+    <TouchableOpacity 
+      style={[styles.listCard, { backgroundColor: colors.backgroundCard }]}
+      onPress={() => { 
+        setSelectedSpot(item); 
+        setViewMode('map'); 
+      }}
+      activeOpacity={0.7}
+    >
+      <View style={styles.listCardContent}>
+        <Text style={[styles.listCardTitle, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
+        <Text style={[styles.listCardAddress, { color: colors.textSecondary }]} numberOfLines={1}>{item.address}</Text>
+      </View>
+      <Text style={[styles.listCardPrice, { color: colors.primary }]}>
+        ${computedRate.toFixed(2)}/hr
+      </Text>
+    </TouchableOpacity>
+  );
+  }, [colors, setSelectedSpot, setViewMode]);
+
+  const keyExtractor = useCallback((item: Listing) => item.id.toString(), []);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View
+      style={[styles.container, { backgroundColor: colors.background }]}
+    >
       <MapView
         ref={setMapRef}
         style={styles.map}
@@ -280,7 +384,16 @@ export default function MapScreen() {
           longitudeDelta: 0.1,
         }}
         onRegionChangeComplete={handleRegionChange}
+        onPress={handleMapPress}
       >
+          {pinEnabled && pickedLocation && (
+            <Marker
+              coordinate={{ latitude: pickedLocation.lat, longitude: pickedLocation.lng }}
+              pinColor={colors.primary}
+              title="Selected location"
+              description={searchText}
+            />
+          )}
           {appliedSpots.map((spot) => (
             spot.latitude != null && spot.longitude != null ? (
             <Marker
@@ -297,7 +410,13 @@ export default function MapScreen() {
                     : undefined,
                 ]}
               >
-                <Text style={styles.pillText}>${((spot.pricePerHour ?? 0)).toFixed(0)}</Text>
+                <Text style={styles.pillText}>
+                  ${computeHourlyRate({
+                    baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
+                    address: spot.address,
+                    startTime: new Date(),
+                  }).toFixed(0)}
+                </Text>
               </TouchableOpacity>
             </Marker>
             ) : null
@@ -313,7 +432,32 @@ export default function MapScreen() {
         onPress={() => setSearchActive(true)}
         activeOpacity={0.8}
       >
-        <Text style={[styles.searchBarText, { color: colors.text }]}>🔍 Find parking near…</Text>
+        <Text style={[styles.searchBarText, { color: colors.text }]} numberOfLines={1}>
+          {searchBarLabel}
+        </Text>
+      </TouchableOpacity>
+
+      {/* Pin Toggle */}
+      <TouchableOpacity
+        style={[
+          styles.pinToggleButton,
+          {
+            bottom: insets.bottom + SPACING.md,
+            backgroundColor: pinEnabled ? colors.primary : colors.backgroundCard,
+            borderColor: colors.border,
+          },
+        ]}
+        onPress={() => {
+          setPinEnabled((prev) => {
+            if (prev) {
+              setPickedLocation(null);
+            }
+            return !prev;
+          });
+        }}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.pinToggleText, { color: pinEnabled ? colors.background : colors.text }]}>📍</Text>
       </TouchableOpacity>
 
       {/* Search Modal */}
@@ -481,27 +625,13 @@ export default function MapScreen() {
           bottom: insets.bottom + SPACING.md 
         }]}>
           <FlatList
-            data={appliedSpots.sort((a,b) => (a.pricePerHour ?? 0) - (b.pricePerHour ?? 0))}
-            keyExtractor={(i) => i.id.toString()}
-            renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={[styles.listCard, { backgroundColor: colors.backgroundCard }]} 
-                onPress={() => { 
-                  setSelectedSpot(item); 
-                  setViewMode('map'); 
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.listCardContent}>
-                  <Text style={[styles.listCardTitle, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
-                  <Text style={[styles.listCardAddress, { color: colors.textSecondary }]} numberOfLines={1}>{item.address}</Text>
-                </View>
-                <Text style={[styles.listCardPrice, { color: colors.primary }]}>
-                  ${((item.pricePerHour ?? 0)).toFixed(2)}/hr
-                </Text>
-              </TouchableOpacity>
-            )}
+            data={sortedSpots}
+            keyExtractor={keyExtractor}
+            renderItem={renderListItem}
             contentContainerStyle={{ paddingBottom: SPACING.lg }}
+            initialNumToRender={8}
+            windowSize={5}
+            removeClippedSubviews
           />
         </View>
       )}
@@ -524,7 +654,11 @@ export default function MapScreen() {
             <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{selectedSpot.title}</Text>
             <Text style={[styles.cardAddress, { color: colors.textSecondary }]} numberOfLines={2}>{selectedSpot.address}</Text>
             <Text style={[styles.cardPrice, { color: colors.primary }]}>
-              ${((selectedSpot.pricePerHour ?? 0)).toFixed(2)}/hr
+              ${computeHourlyRate({
+                baseRate: selectedSpot.pricePerHour ?? DEFAULT_BASE_RATE,
+                address: selectedSpot.address,
+                startTime: new Date(),
+              }).toFixed(2)}/hr
             </Text>
 
             <TouchableOpacity
@@ -624,6 +758,22 @@ const styles = StyleSheet.create({
   },
   searchBarText: {
     fontSize: 16,
+  },
+
+  pinToggleButton: {
+    position: 'absolute',
+    left: SPACING.md,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    zIndex: 10,
+  },
+  pinToggleText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 
   // Search Modal

@@ -1,4 +1,5 @@
-import { addListing } from '@/lib/listings';
+import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -13,7 +14,6 @@ export default function AddListingScreen() {
   const [stateField, setStateField] = useState('');
   const [zip, setZip] = useState('');
   const [spots, setSpots] = useState('1');
-  const [price, setPrice] = useState('5');
   
   // Autocomplete state
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -91,7 +91,10 @@ export default function AddListingScreen() {
       return;
     }
 
-    const id = Date.now().toString();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const hostId = user?.id ?? null;
 
     async function tryGeocodeVariants(address: string) {
       const variants: string[] = [];
@@ -141,18 +144,30 @@ export default function AddListingScreen() {
           {
             text: 'Save Without Pin',
             onPress: () => {
-              const newItem = {
-                id,
-                title: title || 'New Spot',
-                address: fullAddress,
-                latitude: undefined,
-                longitude: undefined,
-                pricePerHour: parseFloat(price) || 0,
-                spots: parseInt(spots, 10) || 1,
-                status: 'Active' as const,
-              };
-              addListing(newItem);
-              router.push('/(tabs)/map');
+              (async () => {
+                const computedRate = computeHourlyRate({
+                  baseRate: DEFAULT_BASE_RATE,
+                  address: fullAddress,
+                });
+
+                const { error } = await supabase.from('spots').insert({
+                  host_id: hostId,
+                  title: title || 'New Spot',
+                  address: fullAddress,
+                  lat: null,
+                  lng: null,
+                  price_per_hour: computedRate,
+                  created_at: new Date().toISOString(),
+                });
+
+                if (error) {
+                  const details = error.message || error.details || error.hint || 'Unknown error';
+                  Alert.alert('Save failed', details);
+                  return;
+                }
+
+                router.push('/(tabs)/map');
+              })();
             },
           },
         ]
@@ -161,19 +176,27 @@ export default function AddListingScreen() {
     }
 
     const { lat, lon } = geo;
+    const computedRate = computeHourlyRate({
+      baseRate: DEFAULT_BASE_RATE,
+      address: fullAddress,
+    });
 
-    const newItem = {
-      id,
+    const { error } = await supabase.from('spots').insert({
+      host_id: hostId,
       title: title || 'New Spot',
       address: fullAddress,
-      latitude: lat,
-      longitude: lon,
-      pricePerHour: parseFloat(price) || 0,
-      spots: parseInt(spots, 10) || 1,
-      status: 'Active' as const,
-    };
+      lat,
+      lng: lon,
+      price_per_hour: computedRate,
+      created_at: new Date().toISOString(),
+    });
 
-    addListing(newItem);
+    if (error) {
+      const details = error.message || error.details || error.hint || 'Unknown error';
+      Alert.alert('Save failed', details);
+      return;
+    }
+
     // navigate to map to view it
     router.push('/(tabs)/map');
   };
@@ -213,7 +236,17 @@ export default function AddListingScreen() {
       Alert.alert('Address not found', 'We could not locate that address. Try editing or use Save Without Pin.');
       return;
     }
-    const params = new URLSearchParams({ lat: String(geo.lat), lng: String(geo.lon), title: title || 'New Spot', price: String(price || '0'), address: fullAddress });
+    const computedRate = computeHourlyRate({
+      baseRate: DEFAULT_BASE_RATE,
+      address: fullAddress,
+    });
+    const params = new URLSearchParams({
+      lat: String(geo.lat),
+      lng: String(geo.lon),
+      title: title || 'New Spot',
+      price: String(computedRate || '0'),
+      address: fullAddress,
+    });
     router.push(`/(tabs)/map?${params.toString()}`);
   };
 
@@ -283,9 +316,6 @@ export default function AddListingScreen() {
 
         <Text style={styles.label}>Number of spots</Text>
         <TextInput style={styles.input} value={spots} onChangeText={setSpots} keyboardType="number-pad" />
-
-        <Text style={styles.label}>Price per hour (USD)</Text>
-        <TextInput style={styles.input} value={price} onChangeText={setPrice} keyboardType="numeric" />
 
         <Pressable style={[styles.saveButton, { backgroundColor: '#2563eb' }]} onPress={onLocate} android_ripple={{ color: '#eee' }}>
           <Text style={styles.saveText}>Locate on Map</Text>

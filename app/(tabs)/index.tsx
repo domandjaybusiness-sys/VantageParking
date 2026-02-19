@@ -20,9 +20,9 @@ export default function HomeScreen() {
   const { colorScheme, colors } = useTheme();
   const [driveways, setDriveways] = useState<any[] | null>(null);
   const [userName, setUserName] = useState('Jason');
-  const [isHost, setIsHost] = useState(true);
-  const [activeBookings, setActiveBookings] = useState(2);
-  const [todayEarnings, setTodayEarnings] = useState(127.50);
+  const [isHost, setIsHost] = useState(false);
+  const [activeBookings, setActiveBookings] = useState(0);
+  const [todayEarnings, setTodayEarnings] = useState(0);
   const router = useRouter();
 
   // Get time-based greeting
@@ -44,6 +44,37 @@ export default function HomeScreen() {
       // Fetch driveways
       const { data } = await supabase.from('driveways').select('*');
       setDriveways(data ?? []);
+
+      if (!user) {
+        setIsHost(false);
+        setActiveBookings(0);
+        setTodayEarnings(0);
+        return;
+      }
+
+      const { data: spots } = await supabase
+        .from('spots')
+        .select('id')
+        .eq('host_id', user.id);
+      setIsHost((spots ?? []).length > 0);
+
+      const { data: bookings } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('host_id', user.id);
+
+      const rows = bookings ?? [];
+      const activeCount = rows.filter((b) => String(b?.status || '').toLowerCase() === 'active').length;
+      setActiveBookings(activeCount);
+
+      const today = new Date().toDateString();
+      const todayTotal = rows.reduce((sum, b) => {
+        if (String(b?.status || '').toLowerCase() !== 'paid') return sum;
+        const raw = b?.paid_at ?? b?.created_at ?? b?.start_time ?? b?.startTime;
+        const date = raw ? new Date(raw).toDateString() : '';
+        return date === today ? sum + Number(b?.amount ?? 0) : sum;
+      }, 0);
+      setTodayEarnings(todayTotal);
     })();
   }, []);
 

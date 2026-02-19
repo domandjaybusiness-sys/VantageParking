@@ -20,11 +20,8 @@ function RootNavigator() {
       const authed = await isAuthenticated();
       const inAuthGroup = segments[0] === '(auth)';
       
-      // Only redirect if user tries to access protected routes while not authenticated
-      if (!authed && segments[0] === '(tabs)') {
-        console.log('🚫 Attempting to access tabs without auth, redirecting to login');
-        router.replace('/(auth)/login');
-      } else if (authed && inAuthGroup && segments.length > 1) {
+      // Allow tabs without auth; only redirect authenticated users out of auth screens
+      if (authed && inAuthGroup && segments.length > 1) {
         // If authenticated and in auth screens (not counting initial load), go to tabs
         console.log('✅ Already authenticated, redirecting to tabs');
         router.replace('/(tabs)');

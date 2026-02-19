@@ -1,9 +1,11 @@
 import { AnimatedListItem } from '@/components/ui/animated-list-item';
 import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import { useTheme } from '@/contexts/ThemeContext';
-import { deleteListing, getListings, Listing, subscribe } from '@/lib/listings';
+import { Listing, mapSpotRow } from '@/lib/listings';
+import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -14,42 +16,197 @@ import {
   View
 } from 'react-native';
 
-// Extended mock data for enhanced features
-const MOCK_REVENUE_DATA = [
-  { date: 'Feb 13', amount: 45.5, bookings: 2 },
-  { date: 'Feb 14', amount: 120.0, bookings: 4 },
-  { date: 'Feb 15', amount: 85.0, bookings: 3 },
-  { date: 'Feb 16', amount: 156.0, bookings: 5 },
-  { date: 'Feb 17', amount: 92.0, bookings: 3 },
-  { date: 'Feb 18', amount: 178.0, bookings: 6 },
-  { date: 'Today', amount: 34.0, bookings: 1 },
-];
-
-const UPCOMING_HOST_BOOKINGS = [
-  { id: 1, guestName: 'Alice K.', spotName: 'Downtown Lot A', date: 'Today 2:00 PM', duration: '4h', amount: 34.0, status: 'Active' },
-  { id: 2, guestName: 'Bob M.', spotName: 'Downtown Lot A', date: 'Tomorrow 10:00 AM', duration: '3h', amount: 25.5, status: 'Confirmed' },
-  { id: 3, guestName: 'Carol D.', spotName: 'Market Street Garage', date: 'Feb 22 6:00 PM', duration: '5h', amount: 60.0, status: 'Confirmed' },
-];
-
 export default function HostScreen() {
   const router = useRouter();
   const { colorScheme, colors } = useTheme();
-  const [listings, setListings] = useState<Listing[]>(() => getListings() as Listing[]);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [hostId, setHostId] = useState<string | null>(null);
+  const [loadingListings, setLoadingListings] = useState(true);
+  const [loadingBookings, setLoadingBookings] = useState(true);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [showEarnings, setShowEarnings] = useState(false);
   const [earningsTab, setEarningsTab] = useState<'week' | 'month'>('week');
-  const [selectedBooking, setSelectedBooking] = useState<typeof UPCOMING_HOST_BOOKINGS[0] | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
   
   useEffect(() => {
-    const unsub = subscribe((items) => setListings(items as Listing[]));
-    return unsub;
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setHostId(user?.id ?? null);
+    })();
   }, []);
 
-  const totalEarnings = 710.5; // This month
-  const weekEarnings = MOCK_REVENUE_DATA.reduce((sum, day) => sum + day.amount, 0);
-  const todayEarnings = MOCK_REVENUE_DATA[MOCK_REVENUE_DATA.length - 1].amount;
-  const totalBookings = 27;
-  const activeBooking = UPCOMING_HOST_BOOKINGS.find(b => b.status === 'Active');
+  const fetchListings = useCallback(async (userId: string) => {
+    setLoadingListings(true);
+    const { data, error } = await supabase
+      .from('spots')
+      .select('*')
+      .eq('host_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      setListings([]);
+      setLoadingListings(false);
+      return;
+    }
+
+    setListings((data ?? []).map(mapSpotRow));
+    setLoadingListings(false);
+  }, []);
+
+  const fetchBookings = useCallback(async (userId: string) => {
+    setLoadingBookings(true);
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('host_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      setBookings([]);
+      setLoadingBookings(false);
+      return;
+    }
+
+    setBookings(data ?? []);
+    setLoadingBookings(false);
+  }, []);
+
+  useEffect(() => {
+    if (!hostId) {
+      setListings([]);
+      setBookings([]);
+      return;
+    }
+
+    fetchListings(hostId);
+    fetchBookings(hostId);
+
+    const spotsChannel = supabase
+      .channel('spots-host')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'spots' }, () => {
+        fetchListings(hostId);
+      })
+      .subscribe();
+
+    const bookingsChannel = supabase
+      .channel('bookings-host')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        fetchBookings(hostId);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(spotsChannel);
+      supabase.removeChannel(bookingsChannel);
+    };
+  }, [hostId, fetchListings, fetchBookings]);
+
+  const paidBookings = useMemo(
+    () => bookings.filter((b) => String(b?.status || '').toLowerCase() === 'paid'),
+    [bookings]
+  );
+
+  const totalEarnings = useMemo(
+    () => paidBookings.reduce((sum, b) => sum + Number(b?.amount ?? 0), 0),
+    [paidBookings]
+  );
+
+  const todayEarnings = useMemo(() => {
+    const today = new Date();
+    return paidBookings.reduce((sum, b) => {
+      const raw = b?.paid_at ?? b?.created_at ?? b?.start_time ?? b?.startTime;
+      const date = raw ? new Date(raw) : null;
+      if (!date) return sum;
+      const sameDay = date.toDateString() === today.toDateString();
+      return sameDay ? sum + Number(b?.amount ?? 0) : sum;
+    }, 0);
+  }, [paidBookings]);
+
+  const weekEarnings = useMemo(() => {
+    const now = Date.now();
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    return paidBookings.reduce((sum, b) => {
+      const raw = b?.paid_at ?? b?.created_at ?? b?.start_time ?? b?.startTime;
+      const date = raw ? new Date(raw).getTime() : 0;
+      if (date >= weekAgo && date <= now) {
+        return sum + Number(b?.amount ?? 0);
+      }
+      return sum;
+    }, 0);
+  }, [paidBookings]);
+
+  const totalBookings = bookings.length;
+
+  const activeBooking = useMemo(() => (
+    bookings.find((b) => String(b?.status || '').toLowerCase() === 'active') || null
+  ), [bookings]);
+
+  const activeBookingDisplay = useMemo(() => {
+    if (!activeBooking) return null;
+    const raw = activeBooking?.start_time ?? activeBooking?.startTime ?? activeBooking?.date ?? activeBooking?.created_at;
+    const date = raw ? new Date(raw) : null;
+    const duration = activeBooking?.duration ?? (activeBooking?.hours ? `${activeBooking.hours}h` : '');
+
+    return {
+      guestName: activeBooking?.guest_name ?? activeBooking?.guestName ?? 'Guest',
+      spotName: activeBooking?.spot_name ?? activeBooking?.spot_title ?? activeBooking?.spotName ?? activeBooking?.address ?? 'Parking Spot',
+      date: date ? date.toLocaleString() : 'Active',
+      duration,
+      amount: Number(activeBooking?.amount ?? activeBooking?.total ?? 0),
+    };
+  }, [activeBooking]);
+
+  const upcomingBookings = useMemo(() => {
+    const now = Date.now();
+    return bookings
+      .filter((b) => String(b?.status || '').toLowerCase() !== 'active')
+      .filter((b) => {
+        const raw = b?.start_time ?? b?.startTime ?? b?.date ?? b?.created_at;
+        const time = raw ? new Date(raw).getTime() : 0;
+        return time >= now;
+      })
+      .slice(0, 5)
+      .map((b) => {
+        const raw = b?.start_time ?? b?.startTime ?? b?.date ?? b?.created_at;
+        const date = raw ? new Date(raw) : null;
+        const duration = b?.duration ?? (b?.hours ? `${b.hours}h` : '');
+        return {
+          id: b?.id,
+          guestName: b?.guest_name ?? b?.guestName ?? 'Guest',
+          spotName: b?.spot_name ?? b?.spot_title ?? b?.spotName ?? b?.address ?? 'Parking Spot',
+          date: date ? date.toLocaleString() : 'Upcoming',
+          duration,
+          amount: Number(b?.amount ?? b?.total ?? 0),
+          status: b?.status ?? 'Confirmed',
+        };
+      });
+  }, [bookings]);
+
+  const chartData = useMemo(() => {
+    const days = Array.from({ length: 7 }).map((_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - i));
+      const label = i === 6 ? 'Today' : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return { label, dateKey: date.toDateString(), amount: 0, bookings: 0 };
+    });
+
+    paidBookings.forEach((b) => {
+      const raw = b?.paid_at ?? b?.created_at ?? b?.start_time ?? b?.startTime;
+      const date = raw ? new Date(raw) : null;
+      if (!date) return;
+      const key = date.toDateString();
+      const match = days.find((d) => d.dateKey === key);
+      if (match) {
+        match.amount += Number(b?.amount ?? 0);
+        match.bookings += 1;
+      }
+    });
+
+    return days;
+  }, [paidBookings]);
 
   const activeCount = useMemo(
     () => listings.filter((l) => l.status === 'Active').length,
@@ -85,7 +242,7 @@ export default function HostScreen() {
           onPress={() => Alert.alert('Active Spots', `You have ${activeCount} active parking spots and ${pausedCount} paused spots.`)}
           activeOpacity={0.7}
         >
-          <Text style={[styles.statValue, { color: colors.primary }]}>{activeCount}</Text>
+            <Text style={[styles.statValue, { color: colors.primary }]}>{activeCount}</Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Active Spots</Text>
         </TouchableOpacity>
         <TouchableOpacity 
@@ -93,7 +250,7 @@ export default function HostScreen() {
           onPress={() => Alert.alert('Total Bookings', `You've had ${totalBookings} total bookings this month.`)}
           activeOpacity={0.7}
         >
-          <Text style={[styles.statValue, { color: colors.primary }]}>{totalBookings}</Text>
+            <Text style={[styles.statValue, { color: colors.primary }]}>{totalBookings}</Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Bookings</Text>
         </TouchableOpacity>
       </View>
@@ -122,14 +279,14 @@ export default function HostScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.miniChart}>
-            {MOCK_REVENUE_DATA.slice(-7).map((day, i) => (
+            {chartData.map((day, i) => (
               <View
                 key={i}
                 style={[
                   styles.miniBar,
                   { backgroundColor: colors.border },
-                  { height: (day.amount / 180) * 60 },
-                  i === MOCK_REVENUE_DATA.length - 1 && [styles.miniBarActive, { backgroundColor: colors.primary }],
+                  { height: day.amount > 0 ? (day.amount / Math.max(1, totalEarnings || 1)) * 60 : 4 },
+                  i === chartData.length - 1 && [styles.miniBarActive, { backgroundColor: colors.primary }],
                 ]}
               />
             ))}
@@ -139,28 +296,28 @@ export default function HostScreen() {
       </AnimatedListItem>
 
       {/* Active Booking Session */}
-      {activeBooking && (
+      {activeBookingDisplay && (
         <AnimatedListItem index={1} direction="down">
           <View style={[styles.activeBookingCard, { backgroundColor: colors.backgroundCard, borderColor: colors.primary }]}>
             <View style={styles.activeBookingHeader}>
               <View style={[styles.pulseDot, { backgroundColor: colors.primary }]} />
               <Text style={[styles.activeBookingTitle, { color: colors.primary }]}>Active Booking</Text>
             </View>
-            <Text style={[styles.guestName, { color: colors.text }]}>{activeBooking.guestName}</Text>
-            <Text style={[styles.spotNameActive, { color: colors.textSecondary }]}>{activeBooking.spotName}</Text>
+            <Text style={[styles.guestName, { color: colors.text }]}>{activeBookingDisplay.guestName}</Text>
+            <Text style={[styles.spotNameActive, { color: colors.textSecondary }]}>{activeBookingDisplay.spotName}</Text>
             <View style={[styles.activeBookingInfo, { backgroundColor: colors.background }]}>
               <View style={styles.infoItem}>
                 <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Time</Text>
-                <Text style={[styles.infoValue, { color: colors.text }]}>{activeBooking.date}</Text>
+                <Text style={[styles.infoValue, { color: colors.text }]}>{activeBookingDisplay.date}</Text>
               </View>
               <View style={styles.infoItem}>
                 <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Duration</Text>
-                <Text style={[styles.infoValue, { color: colors.text }]}>{activeBooking.duration}</Text>
+                <Text style={[styles.infoValue, { color: colors.text }]}>{activeBookingDisplay.duration}</Text>
               </View>
               <View style={styles.infoItem}>
                 <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Earning</Text>
                 <Text style={[styles.earningValue, { color: colors.primary }]}>
-                  ${activeBooking.amount.toFixed(2)}
+                  ${activeBookingDisplay.amount.toFixed(2)}
                 </Text>
               </View>
             </View>
@@ -169,7 +326,7 @@ export default function HostScreen() {
                 style={[styles.activeActionBtn, { backgroundColor: colors.border }]}
                 onPress={() => Alert.alert(
                   'Contact Guest',
-                  `Send a message to ${activeBooking.guestName}?`,
+                  `Send a message to ${activeBookingDisplay.guestName}?`,
                   [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Message', onPress: () => Alert.alert('Message Sent', 'Guest will be notified') }
@@ -201,15 +358,15 @@ export default function HostScreen() {
       )}
 
       {/* Upcoming Bookings Section */}
-      {UPCOMING_HOST_BOOKINGS.filter(b => b.status !== 'Active').length > 0 && (
+      {upcomingBookings.length > 0 && (
         <>
           <View style={styles.sectionHeaderContainer}>
             <Text style={[styles.sectionHeader, { color: colors.text }]}>Upcoming Bookings</Text>
             <Text style={[styles.sectionCount, { color: colors.primary, backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-              {UPCOMING_HOST_BOOKINGS.filter(b => b.status !== 'Active').length}
+              {upcomingBookings.length}
             </Text>
           </View>
-          {UPCOMING_HOST_BOOKINGS.filter(b => b.status !== 'Active').map((booking, index) => (
+          {upcomingBookings.map((booking, index) => (
             <AnimatedListItem key={booking.id} index={index + 2} direction="up">
               <TouchableOpacity 
                 style={[styles.upcomingBookingCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
@@ -262,7 +419,11 @@ export default function HostScreen() {
               <Text style={[styles.listingAddress, { color: colors.textSecondary }]}>{l.address}</Text>
               <View style={styles.listingMeta}>
                 <Text style={[styles.listingPrice, { color: colors.primary }]}>
-                  ${(l.pricePerHour ?? 0).toFixed(0)}/hr
+                  ${computeHourlyRate({
+                    baseRate: l.pricePerHour ?? DEFAULT_BASE_RATE,
+                    address: l.address,
+                    startTime: new Date(),
+                  }).toFixed(0)}/hr
                 </Text>
                 <View
                   style={[
@@ -371,12 +532,12 @@ export default function HostScreen() {
 
             <ScrollView style={styles.chartScroll}>
               <View style={styles.chartContainer}>
-                {MOCK_REVENUE_DATA.map((day, i) => (
+                {chartData.map((day, i) => (
                   <TouchableOpacity 
                     key={i} 
                     style={styles.chartDay}
                     onPress={() => Alert.alert(
-                      day.date,
+                      day.label,
                       `Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}`
                     )}
                     activeOpacity={0.6}
@@ -385,10 +546,10 @@ export default function HostScreen() {
                       style={[
                         styles.chartBar,
                         { backgroundColor: colors.primary },
-                        { height: (day.amount / 180) * 120 },
+                        { height: day.amount > 0 ? (day.amount / Math.max(1, totalEarnings || 1)) * 120 : 8 },
                       ]}
                     />
-                    <Text style={[styles.chartLabel, { color: colors.textSecondary }]}>{day.date}</Text>
+                    <Text style={[styles.chartLabel, { color: colors.textSecondary }]}>{day.label}</Text>
                     <Text style={[styles.chartAmount, { color: colors.text }]}>${day.amount.toFixed(0)}</Text>
                   </TouchableOpacity>
                 ))}
@@ -396,18 +557,18 @@ export default function HostScreen() {
 
               <View style={styles.breakdownSection}>
                 <Text style={[styles.breakdownTitle, { color: colors.text }]}>Revenue Breakdown</Text>
-                {MOCK_REVENUE_DATA.slice(-5).reverse().map((day, i) => (
+                {chartData.slice(-5).reverse().map((day, i) => (
                   <TouchableOpacity 
                     key={i} 
                     style={[styles.breakdownRow, { borderBottomColor: colors.border }]}
                     onPress={() => Alert.alert(
-                      `${day.date} Details`,
-                      `Total Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}\nAverage per booking: $${(day.amount / day.bookings).toFixed(2)}`
+                      `${day.label} Details`,
+                      `Total Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}\nAverage per booking: $${day.bookings ? (day.amount / day.bookings).toFixed(2) : '0.00'}`
                     )}
                     activeOpacity={0.7}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.breakdownDate, { color: colors.text }]}>{day.date}</Text>
+                      <Text style={[styles.breakdownDate, { color: colors.text }]}>{day.label}</Text>
                       <Text style={[styles.breakdownBookings, { color: colors.textSecondary }]}>
                         {day.bookings} bookings
                       </Text>
@@ -452,7 +613,11 @@ export default function HostScreen() {
                     <View style={styles.modalStatItem}>
                       <Text style={[styles.modalStatLabel, { color: colors.textSecondary }]}>Price</Text>
                       <Text style={[styles.modalStatValue, { color: colors.primary }]}>
-                        ${(selectedListing.pricePerHour ?? 0).toFixed(2)}/hr
+                        ${computeHourlyRate({
+                          baseRate: selectedListing.pricePerHour ?? DEFAULT_BASE_RATE,
+                          address: selectedListing.address,
+                          startTime: new Date(),
+                        }).toFixed(2)}/hr
                       </Text>
                     </View>
                     <View style={styles.modalStatItem}>
@@ -538,9 +703,23 @@ export default function HostScreen() {
                               text: 'Delete', 
                               style: 'destructive', 
                               onPress: () => {
-                                deleteListing(selectedListing.id);
-                                setSelectedListing(null);
-                                Alert.alert('Deleted', 'Listing has been removed');
+                                (async () => {
+                                  if (!hostId) return;
+                                  const { error } = await supabase
+                                    .from('spots')
+                                    .delete()
+                                    .eq('id', selectedListing.id)
+                                    .eq('host_id', hostId);
+
+                                  if (error) {
+                                    Alert.alert('Delete failed', error.message);
+                                    return;
+                                  }
+
+                                  setSelectedListing(null);
+                                  fetchListings(hostId);
+                                  Alert.alert('Deleted', 'Listing has been removed');
+                                })();
                               }
                             },
                           ]
@@ -711,6 +890,11 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   statValue: {
     fontSize: 24,
@@ -875,6 +1059,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   bookingCardHeader: {
     flexDirection: 'row',
@@ -921,6 +1110,11 @@ const styles = StyleSheet.create({
     padding: 16,
     marginHorizontal: 16,
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   listingThumb: {
     width: 64,
