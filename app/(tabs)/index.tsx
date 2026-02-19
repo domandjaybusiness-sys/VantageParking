@@ -1,3 +1,5 @@
+import { AnimatedListItem } from '@/components/ui/animated-list-item';
+import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import Card from '@/components/ui/card';
 import PrimaryButton from '@/components/ui/primary-button';
 import { Colors, Design } from '@/constants/theme';
@@ -77,47 +79,53 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: Colors[theme].background }]}> 
-      <View style={styles.headerSection}>
-        <Text style={styles.title}>Find parking in seconds</Text>
-        <Text style={styles.subtitle}>Book nearby driveways and lots instantly.</Text>
+      <AnimatedListItem index={0} direction="down">
+        <View style={styles.headerSection}>
+          <Text style={styles.title}>Find parking in seconds</Text>
+          <Text style={styles.subtitle}>Book nearby driveways and lots instantly.</Text>
 
-        <View style={styles.buttonsRow}>
-          <PrimaryButton title="Search a location" onPress={handleSearchLocation} />
-        </View>
-
-        <View style={{ height: 12 }} />
-        <PrimaryButton 
-          title="Use my current location" 
-          onPress={handleUseCurrentLocation} 
-          style={{ backgroundColor: Colors[theme].backgroundCard }} 
-          textStyle={{ color: Colors[theme].text }} 
-        />
-      </View>
-
-      <Pressable onPress={() => setHowItWorksVisible(true)}>
-        <Card style={styles.howItWorksCard}>
-          <Text style={styles.howTitle}>How it works</Text>
-          <View style={styles.stepsRow}>
-            <View style={styles.step}><Text style={styles.stepTitle}>1. Search</Text></View>
-            <View style={styles.step}><Text style={styles.stepTitle}>2. Reserve</Text></View>
-            <View style={styles.step}><Text style={styles.stepTitle}>3. Park</Text></View>
+          <View style={styles.buttonsRow}>
+            <PrimaryButton title="Search a location" onPress={handleSearchLocation} />
           </View>
-        </Card>
-      </Pressable>
 
-      {driveways && drivewaysFound === 0 && (
-        <Card style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>No spots in this area yet.</Text>
           <View style={{ height: 12 }} />
           <PrimaryButton 
-            title="Become a Host" 
-            onPress={handleBecomeHost} 
+            title="Use my current location" 
+            onPress={handleUseCurrentLocation} 
+            style={{ backgroundColor: Colors[theme].backgroundCard }} 
+            textStyle={{ color: Colors[theme].text }} 
           />
-          <View style={{ height: 8 }} />
-          <Pressable onPress={handleSearchAnotherCity}>
-            <Text style={styles.linkText}>Search another city</Text>
-          </Pressable>
-        </Card>
+        </View>
+      </AnimatedListItem>
+
+      <AnimatedListItem index={1} direction="up">
+        <AnimatedPressableButton onPress={() => setHowItWorksVisible(true)}>
+          <Card style={styles.howItWorksCard}>
+            <Text style={styles.howTitle}>How it works</Text>
+            <View style={styles.stepsRow}>
+              <View style={styles.step}><Text style={styles.stepTitle}>1. Search</Text></View>
+              <View style={styles.step}><Text style={styles.stepTitle}>2. Reserve</Text></View>
+              <View style={styles.step}><Text style={styles.stepTitle}>3. Park</Text></View>
+            </View>
+          </Card>
+        </AnimatedPressableButton>
+      </AnimatedListItem>
+
+      {driveways && drivewaysFound === 0 && (
+        <AnimatedListItem index={2} direction="up">
+          <Card style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No spots in this area yet.</Text>
+            <View style={{ height: 12 }} />
+            <PrimaryButton 
+              title="Become a Host" 
+              onPress={handleBecomeHost} 
+            />
+            <View style={{ height: 8 }} />
+            <Pressable onPress={handleSearchAnotherCity}>
+              <Text style={styles.linkText}>Search another city</Text>
+            </Pressable>
+          </Card>
+        </AnimatedListItem>
       )}
 
       {/* How It Works Modal */}

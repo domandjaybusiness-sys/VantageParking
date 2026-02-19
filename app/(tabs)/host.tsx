@@ -1,3 +1,5 @@
+import { AnimatedListItem } from '@/components/ui/animated-list-item';
+import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Design } from '@/constants/theme';
 import { deleteListing, getListings, Listing, subscribe } from '@/lib/listings';
@@ -58,70 +60,70 @@ const [showEarnings, setShowEarnings] = React.useState(false);
   
   return (
     <ScrollView style={styles.container}>
-      <Pressable style={styles.summaryCard} onPress={onSummaryPress}>
-        <View style={styles.earningsBackground}>
-          <View style={styles.earningsHeader}>
-            <Text style={styles.summaryValueLarge}>${totalEarnings.toFixed(2)}</Text>
-            <View style={styles.trendContainer}>
-              <IconSymbol name="chevron.up" size={14} color="#10b981" />
-              <Text style={styles.trendText}>12% from last month</Text>
+      <AnimatedListItem index={0} direction="down">
+        <AnimatedPressableButton style={styles.summaryCard} onPress={onSummaryPress}>
+          <View style={styles.earningsBackground}>
+            <View style={styles.earningsHeader}>
+              <Text style={styles.summaryValueLarge}>${totalEarnings.toFixed(2)}</Text>
+              <View style={styles.trendContainer}>
+                <IconSymbol name="chevron.up" size={14} color="#10b981" />
+                <Text style={styles.trendText}>12% from last month</Text>
+              </View>
+            </View>
+            <Pressable style={styles.monthSelector}>
+              <Text style={styles.monthSelectorText}>This month ▼</Text>
+            </Pressable>
+          </View>
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <IconSymbol name="calendar" size={20} color={Colors.light.tint} />
+              <Text style={styles.statNumber}>{totalBookings}</Text>
+              <Text style={styles.statLabel}>Bookings</Text>
+            </View>
+            <View style={styles.statCard}>
+              <IconSymbol name="map.fill" size={20} color={Colors.light.tint} />
+              <Text style={styles.statNumber}>{activeCount}</Text>
+              <Text style={styles.statLabel}>Active</Text>
             </View>
           </View>
-          <Pressable style={styles.monthSelector}>
-            <Text style={styles.monthSelectorText}>This month ▼</Text>
-          </Pressable>
-        </View>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <IconSymbol name="calendar" size={20} color={Colors.light.tint} />
-            <Text style={styles.statNumber}>{totalBookings}</Text>
-            <Text style={styles.statLabel}>Bookings</Text>
-          </View>
-          <View style={styles.statCard}>
-            <IconSymbol name="map.fill" size={20} color={Colors.light.tint} />
-            <Text style={styles.statNumber}>{activeCount}</Text>
-            <Text style={styles.statLabel}>Active</Text>
-          </View>
-        </View>
-      </Pressable>
+        </AnimatedPressableButton>
+      </AnimatedListItem>
 
       <Text style={styles.sectionHeader}>My Listings</Text>
-      {listings.map((l) => (
-        <Pressable
-          key={l.id}
-          style={({ pressed }) => [
-            styles.listingCard,
-            pressed && styles.listingCardPressed,
-          ]}
-          onPress={() => onListingPress(l)}
-          android_ripple={{ color: '#eee' }}>
-          <View style={styles.listingThumb} />
-          <View style={styles.listingInfo}>
-            <Text style={styles.listingName}>{l.title}</Text>
-            <Text style={styles.listingAddress}>{l.address}</Text>
-          </View>
-          <Text style={styles.listingPrice}>${(l.pricePerHour ?? 0).toFixed(0)}/hr</Text>
-          <View
-            style={[
-              styles.statusBadge,
-              l.status === 'Active' ? styles.statusActive : styles.statusPaused,
-            ]}>
-            <Text
-              style={
-                l.status === 'Active' ? styles.statusTextActive : styles.statusTextPaused
-              }>
-              {l.status || 'Active'}
-            </Text>
-          </View>
-          <Pressable onPress={() => {
-            Alert.alert('Delete spot', 'Are you sure?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete', style: 'destructive', onPress: () => deleteListing(l.id) },
-            ]);
-          }} hitSlop={8} style={{ marginLeft: 8 }}>
-            <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '600' }}>Delete</Text>
-          </Pressable>
-        </Pressable>
+      {listings.map((l, index) => (
+        <AnimatedListItem key={l.id} index={index + 1} direction="up">
+          <AnimatedPressableButton
+            style={styles.listingCard}
+            onPress={() => onListingPress(l)}
+          >
+            <View style={styles.listingThumb} />
+            <View style={styles.listingInfo}>
+              <Text style={styles.listingName}>{l.title}</Text>
+              <Text style={styles.listingAddress}>{l.address}</Text>
+            </View>
+            <Text style={styles.listingPrice}>${(l.pricePerHour ?? 0).toFixed(0)}/hr</Text>
+            <View
+              style={[
+                styles.statusBadge,
+                l.status === 'Active' ? styles.statusActive : styles.statusPaused,
+              ]}>
+              <Text
+                style={
+                  l.status === 'Active' ? styles.statusTextActive : styles.statusTextPaused
+                }>
+                {l.status || 'Active'}
+              </Text>
+            </View>
+            <Pressable onPress={() => {
+              Alert.alert('Delete spot', 'Are you sure?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: () => deleteListing(l.id) },
+              ]);
+            }} hitSlop={8} style={{ marginLeft: 8 }}>
+              <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '600' }}>Delete</Text>
+            </Pressable>
+          </AnimatedPressableButton>
+        </AnimatedListItem>
       ))}
 
       <Pressable

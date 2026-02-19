@@ -1,3 +1,5 @@
+import { AnimatedListItem } from '@/components/ui/animated-list-item';
+import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import { IconSymbol, IconSymbolName } from '@/components/ui/icon-symbol';
 import { clearAuth } from '@/lib/auth';
 import { useRouter } from 'expo-router';
@@ -105,27 +107,27 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ flexGrow: 1 }}>
-      <View style={styles.profileHeader}>
-        <IconSymbol name="person.crop.circle" size={96} color="white" />
-        <Text style={styles.name}>{user.name}</Text>
-        <Text style={styles.email}>{user.email}</Text>
-        <Text style={styles.rating}>{user.rating.toFixed(1)} ★</Text>
-      </View>
+      <AnimatedListItem index={0} direction="down">
+        <View style={styles.profileHeader}>
+          <IconSymbol name="person.crop.circle" size={96} color="white" />
+          <Text style={styles.name}>{user.name}</Text>
+          <Text style={styles.email}>{user.email}</Text>
+          <Text style={styles.rating}>{user.rating.toFixed(1)} ★</Text>
+        </View>
+      </AnimatedListItem>
 
       <View style={styles.menuContainer}>
-        {menuItems.map((item) => (
-          <Pressable
-            key={item.title}
-            style={({ pressed }) => [
-              styles.menuItem,
-              pressed && styles.menuItemPressed,
-            ]}
-            onPress={() => handleMenuPress(item.title)}
-          >
-            <IconSymbol name={item.icon} size={20} color="#94a3b8" />
-            <Text style={styles.menuItemText}>{item.title}</Text>
-            <Text style={styles.menuItemArrow}>›</Text>
-          </Pressable>
+        {menuItems.map((item, index) => (
+          <AnimatedListItem key={item.title} index={index + 1} direction="up">
+            <AnimatedPressableButton
+              style={styles.menuItem}
+              onPress={() => handleMenuPress(item.title)}
+            >
+              <IconSymbol name={item.icon} size={20} color="#94a3b8" />
+              <Text style={styles.menuItemText}>{item.title}</Text>
+              <Text style={styles.menuItemArrow}>›</Text>
+            </AnimatedPressableButton>
+          </AnimatedListItem>
         ))}
       </View>
       

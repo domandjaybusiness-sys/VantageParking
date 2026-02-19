@@ -1,3 +1,5 @@
+import { AnimatedListItem } from '@/components/ui/animated-list-item';
+import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import Badge from '@/components/ui/badge';
 import { useState } from 'react';
 import {
@@ -104,50 +106,52 @@ export default function BookingsScreen() {
       <FlatList
         data={filteredBookings}
         keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.bookingCard}
-            onPress={() => setSelectedBooking(item)}
-          >
-            {/* Header: Spot Name + Status */}
-            <View style={styles.cardHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.spotName}>{item.spotName}</Text>
-                <Text style={styles.address}>{item.address}</Text>
+        renderItem={({ item, index }) => (
+          <AnimatedListItem index={index} direction="up">
+            <AnimatedPressableButton
+              style={styles.bookingCard}
+              onPress={() => setSelectedBooking(item)}
+            >
+              {/* Header: Spot Name + Status */}
+              <View style={styles.cardHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.spotName}>{item.spotName}</Text>
+                  <Text style={styles.address}>{item.address}</Text>
+                </View>
+                <Badge status={item.status} />
               </View>
-              <Badge status={item.status} />
-            </View>
 
-            {/* Date & Time */}
-            <View style={styles.cardSection}>
-              <Text style={styles.dateTime}>
-                📅 {item.date} {item.timeStart}–{item.timeEnd}
-              </Text>
-            </View>
+              {/* Date & Time */}
+              <View style={styles.cardSection}>
+                <Text style={styles.dateTime}>
+                  📅 {item.date} {item.timeStart}–{item.timeEnd}
+                </Text>
+              </View>
 
-            {/* Price */}
-            <View style={styles.cardSection}>
-              <Text style={styles.price}>${item.totalPrice.toFixed(2)}</Text>
-            </View>
+              {/* Price */}
+              <View style={styles.cardSection}>
+                <Text style={styles.price}>${item.totalPrice.toFixed(2)}</Text>
+              </View>
 
-            {/* Buttons */}
-            <View style={styles.buttonGroup}>
-              <TouchableOpacity style={styles.buttonSmall} onPress={() => setSelectedBooking(item)}>
-                <Text style={styles.buttonSmallText}>View Details</Text>
-              </TouchableOpacity>
+              {/* Buttons */}
+              <View style={styles.buttonGroup}>
+                <TouchableOpacity style={styles.buttonSmall} onPress={() => setSelectedBooking(item)}>
+                  <Text style={styles.buttonSmallText}>View Details</Text>
+                </TouchableOpacity>
 
-              {activeTab === 'past' && (
-                <>
-                  <TouchableOpacity style={styles.buttonSmall}>
-                    <Text style={styles.buttonSmallText}>Review</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.buttonSmall}>
-                    <Text style={styles.buttonSmallText}>Book Again</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </TouchableOpacity>
+                {activeTab === 'past' && (
+                  <>
+                    <TouchableOpacity style={styles.buttonSmall}>
+                      <Text style={styles.buttonSmallText}>Review</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.buttonSmall}>
+                      <Text style={styles.buttonSmallText}>Book Again</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </AnimatedPressableButton>
+          </AnimatedListItem>
         )}
         contentContainerStyle={styles.listContent}
       />
