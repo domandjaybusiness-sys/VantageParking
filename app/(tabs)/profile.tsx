@@ -19,18 +19,16 @@ export default function ProfileScreen() {
   const handleMenuPress = (title: string) => {
     switch (title) {
       case 'Wallet':
-        // Navigate to wallet screen (placeholder)
-        Alert.alert('Wallet', 'Wallet screen coming soon');
+        router.push('/wallet');
         break;
       case 'Parking History':
-        // Navigate to bookings tab
         router.push('/bookings');
         break;
       case 'Settings':
-        Alert.alert('Settings', 'Settings screen coming soon');
+        router.push('/settings');
         break;
       case 'Help':
-        Alert.alert('Help', 'Need help? Contact support@vantageparking.com');
+        setShowSupportModal(true);
         break;
       case 'Log Out':
         handleLogOut();
