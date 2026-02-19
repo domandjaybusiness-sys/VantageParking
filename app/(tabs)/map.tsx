@@ -59,6 +59,10 @@ export default function MapScreen() {
   const [mapRef, setMapRef] = useState<MapView | null>(null);
   const [searchLocation, setSearchLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string | null>(null);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [reservationTotal, setReservationTotal] = useState<number>(0);
+  const [reservationStart, setReservationStart] = useState<Date | null>(null);
+  const [reservationEnd, setReservationEnd] = useState<Date | null>(null);
 
   useEffect(() => {
     // Show all spots or filter by search location
@@ -91,6 +95,25 @@ export default function MapScreen() {
       duration: 250,
       useNativeDriver: true,
     }).start(() => setSelectedSpot(null));
+  };
+
+  const handleReserve = (spot: (typeof DEMO_SPOTS)[0]) => {
+    const start = new Date();
+    const end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hour
+    setReservationStart(start);
+    setReservationEnd(end);
+    setReservationTotal(spot.pricePerHour * 1); // 1 hour by default
+    setPaymentModalVisible(true);
+  };
+
+  const handleConfirmPayment = () => {
+    alert('Payment confirmed — thank you!');
+    setPaymentModalVisible(false);
+    handleCardClose();
+  };
+
+  const handlePaymentBack = () => {
+    setPaymentModalVisible(false);
   };
 
   const handleRegionChange = (region: any) => {
@@ -228,18 +251,47 @@ export default function MapScreen() {
             <Text style={styles.cardAddress}>{selectedSpot.address}</Text>
             <Text style={styles.cardPrice}>${selectedSpot.pricePerHour.toFixed(2)}/hr</Text>
 
-            <TouchableOpacity 
-              style={styles.closeButton} 
-              onPress={() => {
-                alert(`Reserved: ${selectedSpot.title} for $${selectedSpot.pricePerHour.toFixed(2)}/hr`);
-                handleCardClose();
-              }}
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => handleReserve(selectedSpot)}
             >
               <Text style={styles.closeButtonText}>Reserve</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
       )}
+
+      {/* Review & Pay Modal */}
+      <Modal visible={paymentModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { marginTop: 180 }]}> 
+            <Text style={{ fontSize: 18, fontWeight: '700', color: 'white', marginBottom: 12 }}>Review & Pay</Text>
+
+            <Text style={{ color: '#cbd5e1', marginBottom: 8 }}>Spot: {selectedSpot?.title}</Text>
+            <Text style={{ color: '#cbd5e1', marginBottom: 8 }}>
+              Time: {reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
+              {'–'}{reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
+            </Text>
+            <Text style={{ color: '#cbd5e1', marginBottom: 18 }}>Total: ${reservationTotal.toFixed(2)}</Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity
+                style={[styles.modalButton, { flex: 1, marginRight: 8, backgroundColor: '#475569' }]}
+                onPress={handlePaymentBack}
+              >
+                <Text style={styles.modalButtonText}>Back</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, { flex: 1, marginLeft: 8, backgroundColor: '#10b981' }]}
+                onPress={handleConfirmPayment}
+              >
+                <Text style={styles.modalButtonText}>Confirm Payment</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
