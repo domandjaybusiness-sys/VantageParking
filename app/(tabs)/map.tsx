@@ -64,7 +64,9 @@ export default function MapScreen() {
   const [pickedLocation, setPickedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [pinEnabled, setPinEnabled] = useState(true);
   const [radiusMiles, setRadiusMiles] = useState(5);
+  const [radiusConfirmed, setRadiusConfirmed] = useState(false);
   const [confirmLocationVisible, setConfirmLocationVisible] = useState(false);
+  const [radiusPickerVisible, setRadiusPickerVisible] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
@@ -107,7 +109,7 @@ export default function MapScreen() {
     const mapped = (data ?? []).map(mapSpotRow);
     const withCoords = mapped.filter((spot) => spot.latitude != null && spot.longitude != null);
 
-    if (searchLocation) {
+    if (searchLocation && radiusConfirmed) {
       const nearby = withCoords
         .filter((spot) => {
           const distance = calculateDistance(searchLocation.lat, searchLocation.lng, spot.latitude!, spot.longitude!);
@@ -118,11 +120,11 @@ export default function MapScreen() {
           const distB = calculateDistance(searchLocation.lat, searchLocation.lng, b.latitude!, b.longitude!);
           return distA - distB;
         });
-      setFilteredSpots(nearby.length > 0 ? nearby : withCoords);
+      setFilteredSpots(nearby);
     } else {
-      setFilteredSpots(withCoords);
+      setFilteredSpots([]);
     }
-  }, [searchLocation, radiusMiles]);
+  }, [searchLocation, radiusMiles, radiusConfirmed]);
 
   useEffect(() => {
     fetchSpots();
@@ -209,6 +211,7 @@ export default function MapScreen() {
     setSearchActive(false);
     setPendingLocation({ lat: location.lat, lng: location.lng });
     setPickedLocation({ lat: location.lat, lng: location.lng });
+    setRadiusConfirmed(false);
     setConfirmLocationVisible(true);
 
     // Animate map to location
@@ -239,6 +242,7 @@ export default function MapScreen() {
     setMapPickLoading(true);
     setPendingLocation({ lat: latitude, lng: longitude });
     setPickedLocation({ lat: latitude, lng: longitude });
+    setRadiusConfirmed(false);
     setConfirmLocationVisible(true);
 
     try {
@@ -394,7 +398,7 @@ export default function MapScreen() {
         onRegionChangeComplete={handleRegionChange}
         onPress={handleMapPress}
       >
-          {searchLocation && (
+          {searchLocation && radiusConfirmed && (
             <Circle
               center={{ latitude: searchLocation.lat, longitude: searchLocation.lng }}
               radius={radiusMiles * 1609.34}
@@ -470,6 +474,12 @@ export default function MapScreen() {
               setPickedLocation(null);
               setPendingLocation(null);
               setConfirmLocationVisible(false);
+              setRadiusPickerVisible(false);
+              setSearchLocation(null);
+              setSearchText('');
+              setRadiusConfirmed(false);
+              setSearchResults([]);
+              setSearchError(null);
             }
             return !prev;
           });
@@ -478,6 +488,50 @@ export default function MapScreen() {
       >
         <Text style={[styles.pinToggleText, { color: pinEnabled ? colors.background : colors.text }]}>📍</Text>
       </TouchableOpacity>
+
+      {/* Clear Location */}
+      <TouchableOpacity
+        style={[
+          styles.clearButton,
+          {
+            bottom: insets.bottom + SPACING.md + 48,
+            backgroundColor: colors.primary,
+            borderColor: colors.primary,
+          },
+        ]}
+        onPress={() => {
+          setSearchLocation(null);
+          setPendingLocation(null);
+          setPickedLocation(null);
+          setSearchText('');
+          setSearchResults([]);
+          setSearchError(null);
+          setRadiusConfirmed(false);
+          setConfirmLocationVisible(false);
+          setRadiusPickerVisible(false);
+        }}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.clearButtonText, { color: colors.background }]}>Clear</Text>
+      </TouchableOpacity>
+
+      {/* Radius Adjust */}
+      {radiusConfirmed && (
+        <TouchableOpacity
+          style={[
+            styles.radiusAdjustButton,
+            {
+              bottom: insets.bottom + SPACING.md + 88,
+              backgroundColor: colors.primary,
+              borderColor: colors.primary,
+            },
+          ]}
+          onPress={() => setRadiusPickerVisible(true)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.radiusAdjustText, { color: colors.background }]}>{radiusMiles} mi</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Confirm Location */}
       <Modal visible={confirmLocationVisible} animationType="fade" transparent>
@@ -517,6 +571,7 @@ export default function MapScreen() {
                   if (pendingLocation) {
                     setSearchLocation(pendingLocation);
                   }
+                  setRadiusConfirmed(true);
                   setViewMode('map');
                   setConfirmLocationVisible(false);
                 }}
@@ -531,6 +586,53 @@ export default function MapScreen() {
                   setPendingLocation(null);
                   setPickedLocation(null);
                 }}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.confirmCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Adjust Radius */}
+      <Modal visible={radiusPickerVisible} animationType="fade" transparent>
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmContent, { backgroundColor: colors.backgroundCard }]}
+          >
+            <Text style={[styles.confirmTitle, { color: colors.text }]}>Adjust Radius</Text>
+
+            <View style={styles.radiusRow}>
+              {RADIUS_OPTIONS.map((option) => {
+                const active = option === radiusMiles;
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    style={[
+                      styles.radiusOption,
+                      { borderColor: colors.border },
+                      active && { backgroundColor: colors.primary, borderColor: colors.primary },
+                    ]}
+                    onPress={() => setRadiusMiles(option)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.radiusOptionText, { color: active ? colors.background : colors.text }]}>{option} mi</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={[styles.confirmButton, { backgroundColor: colors.primary }]}
+                onPress={() => setRadiusPickerVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.confirmButtonText}>Done</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmCancelButton, { borderColor: colors.border }]}
+                onPress={() => setRadiusPickerVisible(false)}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.confirmCancelText, { color: colors.textSecondary }]}>Cancel</Text>
@@ -853,6 +955,34 @@ const styles = StyleSheet.create({
   },
   pinToggleText: {
     fontSize: 16,
+    fontWeight: '600',
+  },
+
+  clearButton: {
+    position: 'absolute',
+    left: SPACING.md,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    zIndex: 10,
+  },
+  clearButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  radiusAdjustButton: {
+    position: 'absolute',
+    left: SPACING.md,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    zIndex: 10,
+  },
+  radiusAdjustText: {
+    fontSize: 12,
     fontWeight: '600',
   },
 

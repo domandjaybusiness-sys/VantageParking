@@ -18,7 +18,7 @@ export default function AddListingScreen() {
   // Autocomplete state
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch address suggestions as user types
   const fetchAddressSuggestions = async (query: string) => {
