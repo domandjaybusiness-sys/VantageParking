@@ -1,7 +1,7 @@
 import { addListing } from '@/lib/listings';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function AddListingScreen() {
   const router = useRouter();
@@ -14,6 +14,74 @@ export default function AddListingScreen() {
   const [zip, setZip] = useState('');
   const [spots, setSpots] = useState('1');
   const [price, setPrice] = useState('5');
+  
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch address suggestions as user types
+  const fetchAddressSuggestions = async (query: string) => {
+    if (!query || query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    try {
+      // Using Photon API (free OpenStreetMap-based geocoder with autocomplete)
+      const response = await fetch(
+        `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`
+      );
+      const data = await response.json();
+      if (data.features) {
+        setSuggestions(data.features);
+      }
+    } catch (error) {
+      console.log('Autocomplete error:', error);
+    }
+  };
+
+  // Debounced search on street input change
+  useEffect(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    debounceTimer.current = setTimeout(() => {
+      if (street.length >= 3) {
+        const fullQuery = [street, city, stateField].filter(Boolean).join(' ');
+        fetchAddressSuggestions(fullQuery);
+        setShowSuggestions(true);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
+  }, [street, city, stateField]);
+
+  // Handle selecting an autocomplete suggestion
+  const handleSelectSuggestion = (feature: any) => {
+    const props = feature.properties;
+    
+    // Parse address components
+    const streetName = props.name || props.street || '';
+    const houseNumber = props.housenumber || '';
+    const fullStreet = houseNumber ? `${houseNumber} ${streetName}` : streetName;
+    
+    setStreet(fullStreet);
+    setCity(props.city || props.town || props.village || '');
+    setStateField(props.state || '');
+    setZip(props.postcode || '');
+    
+    setSuggestions([]);
+    setShowSuggestions(false);
+  };
 
   const onSubmit = async () => {
     const fullAddress = `${street}${unit ? ' ' + unit : ''}, ${city}${stateField ? ', ' + stateField : ''}${zip ? ' ' + zip : ''}`.trim();
@@ -158,7 +226,39 @@ export default function AddListingScreen() {
         <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Downtown Garage" />
 
         <Text style={styles.label}>Street address</Text>
-        <TextInput style={styles.input} value={street} onChangeText={setStreet} placeholder="123 Main St" />
+        <TextInput 
+          style={styles.input} 
+          value={street} 
+          onChangeText={setStreet} 
+          placeholder="123 Main St" 
+          onFocus={() => street.length >= 3 && suggestions.length > 0 && setShowSuggestions(true)}
+        />
+        
+        {/* Autocomplete suggestions dropdown */}
+        {showSuggestions && suggestions.length > 0 && (
+          <View style={styles.suggestionsContainer}>
+            {suggestions.map((feature, index) => {
+              const props = feature.properties;
+              const displayText = [
+                props.housenumber,
+                props.name || props.street,
+                props.city || props.town,
+                props.state,
+                props.postcode,
+              ].filter(Boolean).join(', ');
+              
+              return (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.suggestionItem}
+                  onPress={() => handleSelectSuggestion(feature)}
+                >
+                  <Text style={styles.suggestionText}>{displayText}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         <Text style={styles.label}>Unit (optional)</Text>
         <TextInput style={styles.input} value={unit} onChangeText={setUnit} placeholder="Apt 2B" />
@@ -206,4 +306,26 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 12, backgroundColor: '#fff' },
   saveButton: { marginTop: 24, backgroundColor: '#0a7ea4', padding: 14, borderRadius: 10, alignItems: 'center' },
   saveText: { color: '#fff', fontWeight: '700' },
+  suggestionsContainer: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    marginTop: 4,
+    maxHeight: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  suggestionText: {
+    fontSize: 14,
+    color: '#111',
+  },
 });

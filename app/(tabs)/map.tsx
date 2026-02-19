@@ -1,36 +1,9 @@
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getListings, Listing, subscribe } from '@/lib/listings';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Animated, FlatList, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-
-// Demo parking spots with address info for searching
-const DEMO_SPOTS = [
-  {
-    id: 1,
-    title: 'Downtown Lot A',
-    address: 'Market St, San Francisco',
-    latitude: 37.7749,
-    longitude: -122.4194,
-    pricePerHour: 8.5,
-  },
-  {
-    id: 2,
-    title: 'Marina Garage',
-    address: 'Marina District, San Francisco',
-    latitude: 37.805,
-    longitude: -122.41,
-    pricePerHour: 12.0,
-  },
-  {
-    id: 3,
-    title: 'Mission District',
-    address: 'Valencia St, San Francisco',
-    latitude: 37.76,
-    longitude: -122.41,
-    pricePerHour: 6.0,
-  },
-];
 
 // Simple function to calculate distance between two points
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -52,8 +25,8 @@ const SEARCH_SUGGESTIONS = [
 ];
 
 export default function MapScreen() {
-  const [filteredSpots, setFilteredSpots] = useState<typeof DEMO_SPOTS>([]);
-  const [selectedSpot, setSelectedSpot] = useState<(typeof DEMO_SPOTS)[0] | null>(null);
+  const [filteredSpots, setFilteredSpots] = useState<Listing[]>(() => (getListings() as Listing[]).filter(s => s.latitude != null && s.longitude != null));
+  const [selectedSpot, setSelectedSpot] = useState<Listing | null>(null);
   const [slideAnim] = useState(new Animated.Value(300));
   const [zoomLevel, setZoomLevel] = useState(1);
   const [searchActive, setSearchActive] = useState(false);
@@ -92,23 +65,32 @@ export default function MapScreen() {
   }, [params.lat, params.lng, mapRef]);
 
   useEffect(() => {
-    // Show all spots or filter by search location
-    if (searchLocation) {
-      const nearby = DEMO_SPOTS.filter((spot) => {
-        const distance = calculateDistance(searchLocation.lat, searchLocation.lng, spot.latitude, spot.longitude);
-        return distance < 5; // Within 5 miles
-      }).sort((a, b) => {
-        const distA = calculateDistance(searchLocation.lat, searchLocation.lng, a.latitude, a.longitude);
-        const distB = calculateDistance(searchLocation.lat, searchLocation.lng, b.latitude, b.longitude);
-        return distA - distB;
-      });
-      setFilteredSpots(nearby.length > 0 ? nearby : DEMO_SPOTS);
-    } else {
-      setFilteredSpots(DEMO_SPOTS);
-    }
+    // Subscribe to listings store updates
+    const update = (all: Listing[]) => {
+      // Filter out listings without coordinates
+      const withCoords = all.filter((spot) => spot.latitude != null && spot.longitude != null);
+      if (searchLocation) {
+        const nearby = withCoords.filter((spot) => {
+          const distance = calculateDistance(searchLocation.lat, searchLocation.lng, spot.latitude!, spot.longitude!);
+          return distance < 5; // Within 5 miles
+        }).sort((a, b) => {
+          const distA = calculateDistance(searchLocation.lat, searchLocation.lng, a.latitude!, a.longitude!);
+          const distB = calculateDistance(searchLocation.lat, searchLocation.lng, b.latitude!, b.longitude!);
+          return distA - distB;
+        });
+        setFilteredSpots(nearby.length > 0 ? nearby : withCoords);
+      } else {
+        setFilteredSpots(withCoords);
+      }
+    };
+
+    // Initial load
+    update(getListings() as Listing[]);
+    const unsub = subscribe(update);
+    return unsub;
   }, [searchLocation]);
 
-  const handleMarkerPress = (spot: (typeof DEMO_SPOTS)[0]) => {
+  const handleMarkerPress = (spot: Listing) => {
     setSelectedSpot(spot);
     Animated.spring(slideAnim, {
       toValue: 0,
@@ -124,7 +106,7 @@ export default function MapScreen() {
     }).start(() => setSelectedSpot(null));
   };
 
-  const handleReserve = (spot: (typeof DEMO_SPOTS)[0]) => {
+  const handleReserve = (spot: Listing) => {
     const start = new Date();
     const end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hour
     setReservationStart(start);
@@ -170,7 +152,7 @@ export default function MapScreen() {
 
   const appliedSpots = filteredSpots.filter((s) => {
     if (!selectedFilter) return true;
-    if (selectedFilter === 'Under $10') return s.pricePerHour < 10;
+    if (selectedFilter === 'Under $10') return (s.pricePerHour ?? 0) < 10;
     if (selectedFilter === 'Available now') return true; // demo: all available
     if (selectedFilter === 'Driveway') return s.title.toLowerCase().includes('driveway');
     if (selectedFilter === 'Garage') return s.title.toLowerCase().includes('garage');
@@ -193,9 +175,10 @@ export default function MapScreen() {
         onRegionChangeComplete={handleRegionChange}
       >
           {appliedSpots.map((spot) => (
+            spot.latitude != null && spot.longitude != null ? (
             <Marker
               key={spot.id}
-              coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
+              coordinate={{ latitude: spot.latitude!, longitude: spot.longitude! }}
               onPress={() => handleMarkerPress(spot)}
             >
               <TouchableOpacity
@@ -204,9 +187,10 @@ export default function MapScreen() {
                   selectedSpot?.id === spot.id ? styles.pricePillSelected : undefined,
                 ]}
               >
-                <Text style={styles.pillText}>${spot.pricePerHour.toFixed(0)}</Text>
+                <Text style={styles.pillText}>${((spot.pricePerHour ?? 0)).toFixed(0)}</Text>
               </TouchableOpacity>
             </Marker>
+            ) : null
           ))}
       </MapView>
 
@@ -293,7 +277,7 @@ export default function MapScreen() {
       {viewMode === 'list' && (
         <View style={styles.listOverlay}>
           <FlatList
-            data={appliedSpots.sort((a,b) => a.pricePerHour - b.pricePerHour)}
+            data={appliedSpots.sort((a,b) => (a.pricePerHour ?? 0) - (b.pricePerHour ?? 0))}
             keyExtractor={(i) => i.id.toString()}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.listCard} onPress={() => { setSelectedSpot(item); setViewMode('map'); }}>
@@ -301,7 +285,7 @@ export default function MapScreen() {
                   <Text style={styles.cardTitle}>{item.title}</Text>
                   <Text style={styles.cardAddress}>{item.address}</Text>
                 </View>
-                <Text style={styles.cardPriceSmall}>${item.pricePerHour.toFixed(2)}/hr</Text>
+                <Text style={styles.cardPriceSmall}>${((item.pricePerHour ?? 0)).toFixed(2)}/hr</Text>
               </TouchableOpacity>
             )}
           />
@@ -321,7 +305,7 @@ export default function MapScreen() {
           <View style={styles.cardContent}>
             <Text style={styles.cardTitle}>{selectedSpot.title}</Text>
             <Text style={styles.cardAddress}>{selectedSpot.address}</Text>
-            <Text style={styles.cardPrice}>${selectedSpot.pricePerHour.toFixed(2)}/hr</Text>
+            <Text style={styles.cardPrice}>${((selectedSpot.pricePerHour ?? 0)).toFixed(2)}/hr</Text>
 
             <TouchableOpacity
               style={styles.closeButton}
