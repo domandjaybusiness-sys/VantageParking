@@ -43,7 +43,7 @@ const FILTER_OPTIONS = [
   { id: 'garage', label: 'Garage' },
 ];
 
-const RADIUS_OPTIONS = [1, 3, 5, 10, 25];
+const RADIUS_OPTIONS = [0.5, 1, 3, 5, 10, 25];
 
 export default function MapScreen() {
   const { colors } = useTheme();
@@ -206,8 +206,10 @@ export default function MapScreen() {
 
   const handleSearch = (location: { title: string; lat: number; lng: number }) => {
     setSearchText(location.title);
-    setSearchLocation({ lat: location.lat, lng: location.lng });
     setSearchActive(false);
+    setPendingLocation({ lat: location.lat, lng: location.lng });
+    setPickedLocation({ lat: location.lat, lng: location.lng });
+    setConfirmLocationVisible(true);
 
     // Animate map to location
     if (mapRef) {
