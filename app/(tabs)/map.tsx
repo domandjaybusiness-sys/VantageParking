@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, Modal, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Design tokens for consistent UI
@@ -43,6 +43,8 @@ const FILTER_OPTIONS = [
   { id: 'garage', label: 'Garage' },
 ];
 
+const RADIUS_OPTIONS = [1, 3, 5, 10, 25];
+
 export default function MapScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -58,8 +60,11 @@ export default function MapScreen() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [mapRef, setMapRef] = useState<MapView | null>(null);
   const [searchLocation, setSearchLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [pendingLocation, setPendingLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [pickedLocation, setPickedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [pinEnabled, setPinEnabled] = useState(true);
+  const [radiusMiles, setRadiusMiles] = useState(5);
+  const [confirmLocationVisible, setConfirmLocationVisible] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
@@ -106,7 +111,7 @@ export default function MapScreen() {
       const nearby = withCoords
         .filter((spot) => {
           const distance = calculateDistance(searchLocation.lat, searchLocation.lng, spot.latitude!, spot.longitude!);
-          return distance < 5; // Within 5 miles
+          return distance < radiusMiles;
         })
         .sort((a, b) => {
           const distA = calculateDistance(searchLocation.lat, searchLocation.lng, a.latitude!, a.longitude!);
@@ -117,7 +122,7 @@ export default function MapScreen() {
     } else {
       setFilteredSpots(withCoords);
     }
-  }, [searchLocation]);
+  }, [searchLocation, radiusMiles]);
 
   useEffect(() => {
     fetchSpots();
@@ -230,8 +235,9 @@ export default function MapScreen() {
     setSearchResults([]);
     setSearchError(null);
     setMapPickLoading(true);
-    setSearchLocation({ lat: latitude, lng: longitude });
+    setPendingLocation({ lat: latitude, lng: longitude });
     setPickedLocation({ lat: latitude, lng: longitude });
+    setConfirmLocationVisible(true);
 
     try {
       const url = `https://photon.komoot.io/reverse?lat=${latitude}&lon=${longitude}&limit=1&lang=en`;
@@ -386,6 +392,15 @@ export default function MapScreen() {
         onRegionChangeComplete={handleRegionChange}
         onPress={handleMapPress}
       >
+          {searchLocation && (
+            <Circle
+              center={{ latitude: searchLocation.lat, longitude: searchLocation.lng }}
+              radius={radiusMiles * 1609.34}
+              strokeWidth={1}
+              strokeColor={`${colors.primary}66`}
+              fillColor={`${colors.primary}1A`}
+            />
+          )}
           {pinEnabled && pickedLocation && (
             <Marker
               coordinate={{ latitude: pickedLocation.lat, longitude: pickedLocation.lng }}
@@ -451,6 +466,8 @@ export default function MapScreen() {
           setPinEnabled((prev) => {
             if (prev) {
               setPickedLocation(null);
+              setPendingLocation(null);
+              setConfirmLocationVisible(false);
             }
             return !prev;
           });
@@ -459,6 +476,67 @@ export default function MapScreen() {
       >
         <Text style={[styles.pinToggleText, { color: pinEnabled ? colors.background : colors.text }]}>📍</Text>
       </TouchableOpacity>
+
+      {/* Confirm Location */}
+      <Modal visible={confirmLocationVisible} animationType="fade" transparent>
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmContent, { backgroundColor: colors.backgroundCard }]}
+          >
+            <Text style={[styles.confirmTitle, { color: colors.text }]}>Confirm Location</Text>
+            <Text style={[styles.confirmAddress, { color: colors.textSecondary }]} numberOfLines={2}>
+              {searchText || 'Selected location'}
+            </Text>
+
+            <Text style={[styles.confirmLabel, { color: colors.textSecondary }]}>Radius</Text>
+            <View style={styles.radiusRow}>
+              {RADIUS_OPTIONS.map((option) => {
+                const active = option === radiusMiles;
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    style={[
+                      styles.radiusOption,
+                      { borderColor: colors.border },
+                      active && { backgroundColor: colors.primary, borderColor: colors.primary },
+                    ]}
+                    onPress={() => setRadiusMiles(option)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.radiusOptionText, { color: active ? colors.background : colors.text }]}>{option} mi</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={[styles.confirmButton, { backgroundColor: colors.primary }]}
+                onPress={() => {
+                  if (pendingLocation) {
+                    setSearchLocation(pendingLocation);
+                  }
+                  setViewMode('map');
+                  setConfirmLocationVisible(false);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.confirmButtonText}>Confirm</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmCancelButton, { borderColor: colors.border }]}
+                onPress={() => {
+                  setConfirmLocationVisible(false);
+                  setPendingLocation(null);
+                  setPickedLocation(null);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.confirmCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Search Modal */}
       <Modal visible={searchActive} animationType="fade" transparent>
@@ -773,6 +851,71 @@ const styles = StyleSheet.create({
   },
   pinToggleText: {
     fontSize: 16,
+    fontWeight: '600',
+  },
+
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.md,
+  },
+  confirmContent: {
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  confirmAddress: {
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.md,
+    fontSize: 14,
+  },
+  confirmLabel: {
+    fontSize: 12,
+    marginBottom: SPACING.xs,
+  },
+  radiusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  radiusOption: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  radiusOptionText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  confirmActions: {
+    marginTop: SPACING.md,
+    flexDirection: 'row',
+  },
+  confirmButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: RADIUS.sm,
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  confirmCancelButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: RADIUS.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  confirmCancelText: {
     fontWeight: '600',
   },
 
