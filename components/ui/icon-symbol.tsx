@@ -28,6 +28,9 @@ const MAPPING = {
   'gearshape': 'settings',
   'questionmark.circle': 'help-outline',
   'rectangle.portrait.and.arrow.right': 'logout',
+  // settings submenu icons
+  'lock': 'lock',
+  'bell': 'notifications',
 } as IconMapping;
 
 /**
