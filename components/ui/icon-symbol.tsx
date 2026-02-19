@@ -31,6 +31,8 @@ const MAPPING = {
   // settings submenu icons
   'lock': 'lock',
   'bell': 'notifications',
+  'chevron.up': 'keyboard-arrow-up',
+  'chevron.down': 'keyboard-arrow-down',
 } as IconMapping;
 
 /**
