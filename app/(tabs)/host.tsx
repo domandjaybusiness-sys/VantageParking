@@ -36,6 +36,7 @@ export default function HostScreen() {
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [showEarnings, setShowEarnings] = useState(false);
   const [earningsTab, setEarningsTab] = useState<'week' | 'month'>('week');
+  const [selectedBooking, setSelectedBooking] = useState<typeof UPCOMING_HOST_BOOKINGS[0] | null>(null);
   
   useEffect(() => {
     const unsub = subscribe((items) => setListings(items as Listing[]));
@@ -66,18 +67,33 @@ export default function HostScreen() {
     <ScrollView style={styles.container}>
       {/* Stats Dashboard */}
       <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
+        <TouchableOpacity 
+          style={styles.statCard}
+          onPress={() => {
+            setEarningsTab('month');
+            setShowEarnings(true);
+          }}
+          activeOpacity={0.7}
+        >
           <Text style={styles.statValue}>${totalEarnings.toFixed(0)}</Text>
           <Text style={styles.statLabel}>This Month</Text>
-        </View>
-        <View style={styles.statCard}>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.statCard}
+          onPress={() => Alert.alert('Active Spots', `You have ${activeCount} active parking spots and ${pausedCount} paused spots.`)}
+          activeOpacity={0.7}
+        >
           <Text style={styles.statValue}>{activeCount}</Text>
           <Text style={styles.statLabel}>Active Spots</Text>
-        </View>
-        <View style={styles.statCard}>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.statCard}
+          onPress={() => Alert.alert('Total Bookings', `You've had ${totalBookings} total bookings this month.`)}
+          activeOpacity={0.7}
+        >
           <Text style={styles.statValue}>{totalBookings}</Text>
           <Text style={styles.statLabel}>Total Bookings</Text>
-        </View>
+        </TouchableOpacity>
       </View>
 
       {/* Today's Earnings Card */}
@@ -92,9 +108,13 @@ export default function HostScreen() {
               <Text style={styles.todayLabel}>Today's Earnings</Text>
               <Text style={styles.todayAmount}>${todayEarnings.toFixed(2)}</Text>
             </View>
-            <View style={styles.trendBadge}>
+            <TouchableOpacity 
+              style={styles.trendBadge}
+              onPress={() => Alert.alert('Trend', 'Up 12% compared to yesterday')}
+              activeOpacity={0.7}
+            >
               <Text style={styles.trendText}>↗ +12%</Text>
-            </View>
+            </TouchableOpacity>
           </View>
           <View style={styles.miniChart}>
             {MOCK_REVENUE_DATA.slice(-7).map((day, i) => (
@@ -139,12 +159,32 @@ export default function HostScreen() {
             <View style={styles.activeActions}>
               <TouchableOpacity 
                 style={styles.activeActionBtn}
-                onPress={() => Alert.alert('Contact', `Message ${activeBooking.guestName}`)}>
+                onPress={() => Alert.alert(
+                  'Contact Guest',
+                  `Send a message to ${activeBooking.guestName}?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Message', onPress: () => Alert.alert('Message Sent', 'Guest will be notified') }
+                  ]
+                )}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.activeActionText}>💬 Contact</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.activeActionBtn}
-                onPress={() => Alert.alert('Issue', 'Report a problem')}>
+                onPress={() => Alert.alert(
+                  'Report Issue',
+                  'What type of issue would you like to report?',
+                  [
+                    { text: 'No Show', onPress: () => Alert.alert('Reported', 'Issue has been reported') },
+                    { text: 'Damage', onPress: () => Alert.alert('Reported', 'Issue has been reported') },
+                    { text: 'Other', onPress: () => Alert.alert('Reported', 'Issue has been reported') },
+                    { text: 'Cancel', style: 'cancel' }
+                  ]
+                )}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.activeActionText}>⚠️ Report</Text>
               </TouchableOpacity>
             </View>
@@ -161,7 +201,11 @@ export default function HostScreen() {
           </View>
           {UPCOMING_HOST_BOOKINGS.filter(b => b.status !== 'Active').map((booking, index) => (
             <AnimatedListItem key={booking.id} index={index + 2} direction="up">
-              <View style={styles.upcomingBookingCard}>
+              <TouchableOpacity 
+                style={styles.upcomingBookingCard}
+                onPress={() => setSelectedBooking(booking)}
+                activeOpacity={0.8}
+              >
                 <View style={styles.bookingCardHeader}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.guestNameSmall}>{booking.guestName}</Text>
@@ -175,7 +219,7 @@ export default function HostScreen() {
                     <Text style={styles.durationTextSmall}>{booking.duration}</Text>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             </AnimatedListItem>
           ))}
         </>
@@ -184,7 +228,10 @@ export default function HostScreen() {
       {/* My Listings Section */}
       <View style={styles.sectionHeaderContainer}>
         <Text style={styles.sectionHeader}>My Parking Spots</Text>
-        <TouchableOpacity onPress={onAddNew}>
+        <TouchableOpacity 
+          onPress={onAddNew}
+          activeOpacity={0.6}
+        >
           <Text style={styles.addNewText}>+ Add New</Text>
         </TouchableOpacity>
       </View>
@@ -230,7 +277,11 @@ export default function HostScreen() {
           <Text style={styles.emptyText}>
             List your parking spot and start earning money today!
           </Text>
-          <TouchableOpacity style={styles.emptyButton} onPress={onAddNew}>
+          <TouchableOpacity 
+            style={styles.emptyButton} 
+            onPress={onAddNew}
+            activeOpacity={0.8}
+          >
             <Text style={styles.emptyButtonText}>+ Add Your First Spot</Text>
           </TouchableOpacity>
         </View>
@@ -283,7 +334,15 @@ export default function HostScreen() {
             <ScrollView style={styles.chartScroll}>
               <View style={styles.chartContainer}>
                 {MOCK_REVENUE_DATA.map((day, i) => (
-                  <View key={i} style={styles.chartDay}>
+                  <TouchableOpacity 
+                    key={i} 
+                    style={styles.chartDay}
+                    onPress={() => Alert.alert(
+                      day.date,
+                      `Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}`
+                    )}
+                    activeOpacity={0.6}
+                  >
                     <View 
                       style={[
                         styles.chartBar, 
@@ -292,20 +351,28 @@ export default function HostScreen() {
                     />
                     <Text style={styles.chartLabel}>{day.date}</Text>
                     <Text style={styles.chartAmount}>${day.amount.toFixed(0)}</Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
 
               <View style={styles.breakdownSection}>
                 <Text style={styles.breakdownTitle}>Revenue Breakdown</Text>
                 {MOCK_REVENUE_DATA.slice(-5).reverse().map((day, i) => (
-                  <View key={i} style={styles.breakdownRow}>
+                  <TouchableOpacity 
+                    key={i} 
+                    style={styles.breakdownRow}
+                    onPress={() => Alert.alert(
+                      `${day.date} Details`,
+                      `Total Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}\nAverage per booking: $${(day.amount / day.bookings).toFixed(2)}`
+                    )}
+                    activeOpacity={0.7}
+                  >
                     <View style={{ flex: 1 }}>
                       <Text style={styles.breakdownDate}>{day.date}</Text>
                       <Text style={styles.breakdownBookings}>{day.bookings} bookings</Text>
                     </View>
                     <Text style={styles.breakdownAmount}>${day.amount.toFixed(2)}</Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             </ScrollView>
@@ -364,9 +431,13 @@ export default function HostScreen() {
                     <TouchableOpacity 
                       style={styles.modalActionButton}
                       onPress={() => {
-                        Alert.alert('Edit', 'Edit listing details');
                         setSelectedListing(null);
-                      }}>
+                        Alert.alert('Edit Listing', 'Opening edit form...', [
+                          { text: 'OK', onPress: () => router.push('/add-listing') }
+                        ]);
+                      }}
+                      activeOpacity={0.7}
+                    >
                       <Text style={styles.modalActionText}>✏️ Edit Details</Text>
                     </TouchableOpacity>
 
@@ -377,10 +448,22 @@ export default function HostScreen() {
                       ]}
                       onPress={() => {
                         Alert.alert(
-                          selectedListing.status === 'Active' ? 'Pause' : 'Activate',
-                          `${selectedListing.status === 'Active' ? 'Pause' : 'Activate'} this listing?`
+                          selectedListing.status === 'Active' ? 'Pause Listing' : 'Activate Listing',
+                          `${selectedListing.status === 'Active' ? 'This will stop new bookings from being made.' : 'This will allow new bookings to be made.'}`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { 
+                              text: 'Confirm',
+                              onPress: () => {
+                                Alert.alert('Updated', `Listing ${selectedListing.status === 'Active' ? 'paused' : 'activated'} successfully`);
+                                setSelectedListing(null);
+                              }
+                            }
+                          ]
                         );
-                      }}>
+                      }}
+                      activeOpacity={0.7}
+                    >
                       <Text style={styles.modalActionText}>
                         {selectedListing.status === 'Active' ? '⏸️ Pause Listing' : '▶️ Activate Listing'}
                       </Text>
@@ -389,19 +472,142 @@ export default function HostScreen() {
                     <TouchableOpacity 
                       style={[styles.modalActionButton, styles.deleteButton]}
                       onPress={() => {
-                        Alert.alert('Delete', 'Are you sure? This cannot be undone.', [
-                          { text: 'Cancel', style: 'cancel' },
-                          { 
-                            text: 'Delete', 
-                            style: 'destructive', 
-                            onPress: () => {
-                              deleteListing(selectedListing.id);
-                              setSelectedListing(null);
-                            }
-                          },
-                        ]);
-                      }}>
+                        Alert.alert(
+                          'Delete Listing', 
+                          'Are you sure you want to delete this listing? This action cannot be undone and will cancel all upcoming bookings.', 
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { 
+                              text: 'Delete', 
+                              style: 'destructive', 
+                              onPress: () => {
+                                deleteListing(selectedListing.id);
+                                setSelectedListing(null);
+                                Alert.alert('Deleted', 'Listing has been removed');
+                              }
+                            },
+                          ]
+                        );
+                      }}
+                      activeOpacity={0.7}
+                    >
                       <Text style={styles.deleteActionText}>🗑️ Delete Listing</Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Booking Details Modal */}
+      <Modal visible={selectedBooking !== null} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity 
+            style={styles.modalBackdrop} 
+            onPress={() => setSelectedBooking(null)}
+            activeOpacity={1}
+          />
+          <View style={styles.listingModal}>
+            {selectedBooking && (
+              <>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Booking Details</Text>
+                  <TouchableOpacity onPress={() => setSelectedBooking(null)}>
+                    <Text style={styles.modalClose}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView>
+                  <View style={styles.bookingDetailCard}>
+                    <Text style={styles.bookingDetailLabel}>Guest</Text>
+                    <Text style={styles.bookingDetailValue}>{selectedBooking.guestName}</Text>
+                  </View>
+
+                  <View style={styles.bookingDetailCard}>
+                    <Text style={styles.bookingDetailLabel}>Parking Spot</Text>
+                    <Text style={styles.bookingDetailValue}>{selectedBooking.spotName}</Text>
+                  </View>
+
+                  <View style={styles.bookingDetailCard}>
+                    <Text style={styles.bookingDetailLabel}>Date & Time</Text>
+                    <Text style={styles.bookingDetailValue}>{selectedBooking.date}</Text>
+                  </View>
+
+                  <View style={styles.bookingDetailCard}>
+                    <Text style={styles.bookingDetailLabel}>Duration</Text>
+                    <Text style={styles.bookingDetailValue}>{selectedBooking.duration}</Text>
+                  </View>
+
+                  <View style={styles.bookingDetailCard}>
+                    <Text style={styles.bookingDetailLabel}>Earnings</Text>
+                    <Text style={[styles.bookingDetailValue, { color: '#10b981' }]}>
+                      ${selectedBooking.amount.toFixed(2)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.bookingDetailCard}>
+                    <Text style={styles.bookingDetailLabel}>Status</Text>
+                    <View style={[
+                      styles.statusBadge,
+                      selectedBooking.status === 'Active' ? styles.statusActive : styles.statusPaused,
+                    ]}>
+                      <View style={[
+                        styles.statusDot,
+                        { backgroundColor: selectedBooking.status === 'Active' ? '#10b981' : '#f59e0b' }
+                      ]} />
+                      <Text style={
+                        selectedBooking.status === 'Active' ? styles.statusTextActive : styles.statusTextPaused
+                      }>
+                        {selectedBooking.status}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity 
+                      style={styles.modalActionButton}
+                      onPress={() => {
+                        Alert.alert('Message Guest', `Send a message to ${selectedBooking.guestName}`);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.modalActionText}>💬 Message Guest</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.modalActionButton}
+                      onPress={() => {
+                        Alert.alert('View Spot', `View details for ${selectedBooking.spotName}`);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.modalActionText}>📍 View Spot</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.modalActionButton, styles.deleteButton]}
+                      onPress={() => {
+                        Alert.alert(
+                          'Cancel Booking',
+                          'Are you sure you want to cancel this booking? The guest will be notified.',
+                          [
+                            { text: 'Keep Booking', style: 'cancel' },
+                            { 
+                              text: 'Cancel Booking', 
+                              style: 'destructive',
+                              onPress: () => {
+                                Alert.alert('Cancelled', 'Booking has been cancelled.');
+                                setSelectedBooking(null);
+                              }
+                            },
+                          ]
+                        );
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.deleteActionText}>❌ Cancel Booking</Text>
                     </TouchableOpacity>
                   </View>
                 </ScrollView>
@@ -978,6 +1184,27 @@ const styles = StyleSheet.create({
   deleteActionText: {
     color: '#ef4444',
     fontSize: 15,
+    fontWeight: '600',
+  },
+
+  // Booking Details Modal
+  bookingDetailCard: {
+    backgroundColor: '#0f172a',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  bookingDetailLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  bookingDetailValue: {
+    fontSize: 16,
+    color: 'white',
     fontWeight: '600',
   },
 });
