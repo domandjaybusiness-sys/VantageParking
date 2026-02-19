@@ -1,13 +1,16 @@
 import { AnimatedListItem } from '@/components/ui/animated-list-item';
 import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import { IconSymbol, IconSymbolName } from '@/components/ui/icon-symbol';
+import { useTheme } from '@/contexts/ThemeContext';
 import { clearAuth } from '@/lib/auth';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { colorScheme, themePreference, setThemePreference, colors } = useTheme();
   const [showSupportModal, setShowSupportModal] = useState(false);
   
   // fake user data for UI layout; in a real app this would come from state/props
@@ -106,26 +109,96 @@ export default function ProfileScreen() {
   ];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ flexGrow: 1 }}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ flexGrow: 1 }}>
       <AnimatedListItem index={0} direction="down">
-        <View style={styles.profileHeader}>
-          <IconSymbol name="person.crop.circle" size={96} color="white" />
-          <Text style={styles.name}>{user.name}</Text>
-          <Text style={styles.email}>{user.email}</Text>
+        <View style={[styles.profileHeader, { backgroundColor: colorScheme === 'dark' ? '#1f2937' : '#e5e7eb' }]}>
+          <IconSymbol name="person.crop.circle" size={96} color={colorScheme === 'dark' ? 'white' : '#1f2937'} />
+          <Text style={[styles.name, { color: colors.text }]}>{user.name}</Text>
+          <Text style={[styles.email, { color: colors.textSecondary }]}>{user.email}</Text>
           <Text style={styles.rating}>{user.rating.toFixed(1)} ★</Text>
         </View>
       </AnimatedListItem>
 
+      {/* Theme Toggle Section */}
+      <View style={styles.themeSection}>
+        <AnimatedListItem index={1} direction="up">
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Appearance</Text>
+          <View style={[styles.themeCard, { backgroundColor: colors.backgroundCard }]}>
+            <TouchableOpacity
+              style={[
+                styles.themeOption,
+                themePreference === 'light' && styles.themeOptionActive,
+                { borderColor: themePreference === 'light' ? colors.primary : 'transparent' },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setThemePreference('light');
+              }}
+              activeOpacity={0.7}
+            >
+              <IconSymbol name="sun.max" size={28} color={themePreference === 'light' ? colors.primary : colors.textSecondary} />
+              <Text style={[
+                styles.themeOptionText,
+                { color: themePreference === 'light' ? colors.primary : colors.textSecondary }
+              ]}>Light</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.themeOption,
+                themePreference === 'dark' && styles.themeOptionActive,
+                { borderColor: themePreference === 'dark' ? colors.primary : 'transparent' },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setThemePreference('dark');
+              }}
+              activeOpacity={0.7}
+            >
+              <IconSymbol name="moon" size={28} color={themePreference === 'dark' ? colors.primary : colors.textSecondary} />
+              <Text style={[
+                styles.themeOptionText,
+                { color: themePreference === 'dark' ? colors.primary : colors.textSecondary }
+              ]}>Dark</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.themeOption,
+                themePreference === 'auto' && styles.themeOptionActive,
+                { borderColor: themePreference === 'auto' ? colors.primary : 'transparent' },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setThemePreference('auto');
+              }}
+              activeOpacity={0.7}
+            >
+              <IconSymbol name="sparkles" size={28} color={themePreference === 'auto' ? colors.primary : colors.textSecondary} />
+              <Text style={[
+                styles.themeOptionText,
+                { color: themePreference === 'auto' ? colors.primary : colors.textSecondary }
+              ]}>Auto</Text>
+            </TouchableOpacity>
+          </View>
+          {themePreference === 'auto' && (
+            <Text style={[styles.themeHint, { color: colors.textSecondary }]}>
+              Currently using {colorScheme} mode based on system settings
+            </Text>
+          )}
+        </AnimatedListItem>
+      </View>
+
       <View style={styles.menuContainer}>
         {menuItems.map((item, index) => (
-          <AnimatedListItem key={item.title} index={index + 1} direction="up">
+          <AnimatedListItem key={item.title} index={index + 2} direction="up">
             <AnimatedPressableButton
-              style={styles.menuItem}
+              style={[styles.menuItem, { backgroundColor: colors.backgroundCard }]}
               onPress={() => handleMenuPress(item.title)}
             >
-              <IconSymbol name={item.icon} size={20} color="#94a3b8" />
-              <Text style={styles.menuItemText}>{item.title}</Text>
-              <Text style={styles.menuItemArrow}>›</Text>
+              <IconSymbol name={item.icon} size={20} color={colors.textSecondary} />
+              <Text style={[styles.menuItemText, { color: colors.text }]}>{item.title}</Text>
+              <Text style={[styles.menuItemArrow, { color: colors.textSecondary }]}>›</Text>
             </AnimatedPressableButton>
           </AnimatedListItem>
         ))}
@@ -133,8 +206,8 @@ export default function ProfileScreen() {
       
       {/* Verification Section */}
       <View style={{ padding: 16 }}>
-        <Text style={{ color: 'white', fontWeight: '700', marginBottom: 8 }}>Verification</Text>
-        <View style={{ backgroundColor: '#0f172a', padding: 12, borderRadius: 8, gap: 12 }}>
+        <Text style={[{ fontWeight: '700', marginBottom: 8 }, { color: colors.text }]}>Verification</Text>
+        <View style={[{ padding: 12, borderRadius: 8, gap: 12 }, { backgroundColor: colors.backgroundCard }]}>
           <Pressable
             onPress={handleEmailVerification}
             style={({ pressed }) => [
@@ -146,8 +219,8 @@ export default function ProfileScreen() {
               size={20} 
               color={user.emailVerified ? '#10b981' : '#94a3b8'} 
             />
-            <Text style={{ color: '#94a3b8', flex: 1 }}>Email</Text>
-            {!user.emailVerified && <Text style={{ color: '#10b981', fontSize: 14 }}>Verify</Text>}
+            <Text style={{ color: colors.textSecondary, flex: 1 }}>Email</Text>
+            {!user.emailVerified && <Text style={{ color: colors.primary, fontSize: 14 }}>Verify</Text>}
           </Pressable>
           
           <Pressable
@@ -159,34 +232,35 @@ export default function ProfileScreen() {
             <IconSymbol 
               name={user.phoneVerified ? 'checkmark.circle.fill' : 'xmark.circle'} 
               size={20} 
-              color={user.phoneVerified ? '#10b981' : '#94a3b8'} 
+              color={user.phoneVerified ? colors.primary : colors.textSecondary} 
             />
-            <Text style={{ color: '#94a3b8', flex: 1 }}>Phone</Text>
-            {!user.phoneVerified && <Text style={{ color: '#10b981', fontSize: 14 }}>Verify</Text>}
+            <Text style={{ color: colors.textSecondary, flex: 1 }}>Phone</Text>
+            {!user.phoneVerified && <Text style={{ color: colors.primary, fontSize: 14 }}>Verify</Text>}
           </Pressable>
         </View>
 
         {/* Support Section */}
-        <Text style={{ color: 'white', fontWeight: '700', marginTop: 16, marginBottom: 8 }}>Support</Text>
+        <Text style={[{ fontWeight: '700', marginTop: 16, marginBottom: 8 }, { color: colors.text }]}>Support</Text>
         <Pressable
           onPress={() => setShowSupportModal(true)}
           style={({ pressed }) => [
-            { backgroundColor: '#0f172a', padding: 12, borderRadius: 8, opacity: pressed ? 0.7 : 1 }
+            { padding: 12, borderRadius: 8, opacity: pressed ? 0.7 : 1 },
+            { backgroundColor: colors.backgroundCard }
           ]}
         >
-          <Text style={{ color: '#94a3b8' }}>Contact support for payments, bookings, or hosts.</Text>
-          <Text style={{ color: '#10b981', marginTop: 4, fontSize: 14 }}>Get Help →</Text>
+          <Text style={{ color: colors.textSecondary }}>Contact support for payments, bookings, or hosts.</Text>
+          <Text style={{ color: colors.primary, marginTop: 4, fontSize: 14 }}>Get Help →</Text>
         </Pressable>
 
         {/* Legal Section */}
-        <Text style={{ color: 'white', fontWeight: '700', marginTop: 16, marginBottom: 8 }}>Legal</Text>
-        <View style={{ backgroundColor: '#0f172a', padding: 12, borderRadius: 8, flexDirection: 'row', gap: 16 }}>
+        <Text style={[{ fontWeight: '700', marginTop: 16, marginBottom: 8 }, { color: colors.text }]}>Legal</Text>
+        <View style={[{ padding: 12, borderRadius: 8, flexDirection: 'row', gap: 16 }, { backgroundColor: colors.backgroundCard }]}>
           <Pressable onPress={() => handleLegalLink('terms')}>
-            <Text style={{ color: '#10b981', fontSize: 14 }}>Terms of Service</Text>
+            <Text style={{ color: colors.primary, fontSize: 14 }}>Terms of Service</Text>
           </Pressable>
-          <Text style={{ color: '#94a3b8' }}>·</Text>
+          <Text style={{ color: colors.textSecondary }}>·</Text>
           <Pressable onPress={() => handleLegalLink('privacy')}>
-            <Text style={{ color: '#10b981', fontSize: 14 }}>Privacy Policy</Text>
+            <Text style={{ color: colors.primary, fontSize: 14 }}>Privacy Policy</Text>
           </Pressable>
         </View>
       </View>
@@ -244,23 +318,58 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0b1220' },
+  container: { flex: 1 },
   profileHeader: {
     paddingTop: 60,
     paddingBottom: 32,
     alignItems: 'center',
-    backgroundColor: '#1f2937',
   },
-  name: { fontSize: 22, fontWeight: '700', color: 'white', marginTop: 8 },
-  email: { fontSize: 14, color: '#94a3b8', marginTop: 2 },
+  name: { fontSize: 22, fontWeight: '700', marginTop: 8 },
+  email: { fontSize: 14, marginTop: 2 },
   rating: { fontSize: 16, color: '#fbbf24', marginTop: 4 },
+  
+  themeSection: {
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  themeCard: {
+    flexDirection: 'row',
+    padding: 8,
+    borderRadius: 12,
+    gap: 8,
+  },
+  themeOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderRadius: 10,
+    borderWidth: 2,
+    gap: 8,
+  },
+  themeOptionActive: {
+    // borderColor will be set dynamically
+  },
+  themeOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  themeHint: {
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  
   menuContainer: { paddingVertical: 16 },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#0f172a',
     marginHorizontal: 16,
     marginBottom: 8,
     borderRadius: 8,
@@ -272,11 +381,9 @@ const styles = StyleSheet.create({
     flex: 1, 
     marginLeft: 12, 
     fontSize: 16, 
-    color: 'white' 
   },
   menuItemArrow: {
     fontSize: 24,
-    color: '#94a3b8',
     fontWeight: '300',
   },
   modalBackdrop: {

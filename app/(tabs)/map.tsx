@@ -1,4 +1,4 @@
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useTheme } from '@/contexts/ThemeContext';
 import { getListings, Listing, subscribe } from '@/lib/listings';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -22,17 +22,6 @@ const RADIUS = {
   xl: 24,
 };
 
-const COLORS = {
-  background: '#0f172a',
-  card: '#1e293b',
-  cardLight: '#334155',
-  primary: '#10b981',
-  text: '#ffffff',
-  textSecondary: '#cbd5e1',
-  textMuted: '#94a3b8',
-  border: '#334155',
-  overlay: 'rgba(0, 0, 0, 0.5)',
-};
 
 // Simple function to calculate distance between two points
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -61,6 +50,7 @@ const FILTER_OPTIONS = [
 ];
 
 export default function MapScreen() {
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [filteredSpots, setFilteredSpots] = useState<Listing[]>(() => (getListings() as Listing[]).filter(s => s.latitude != null && s.longitude != null));
   const [selectedSpot, setSelectedSpot] = useState<Listing | null>(null);
@@ -205,8 +195,6 @@ export default function MapScreen() {
     }
   };
 
-  const theme = useColorScheme() ?? 'light';
-
   const appliedSpots = filteredSpots.filter((s) => {
     if (selectedFilters.length === 0) return true;
     
@@ -221,7 +209,7 @@ export default function MapScreen() {
   });
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <MapView
         ref={setMapRef}
         style={styles.map}
@@ -244,7 +232,10 @@ export default function MapScreen() {
               <TouchableOpacity
                 style={[
                   styles.pricePill,
-                  selectedSpot?.id === spot.id ? styles.pricePillSelected : undefined,
+                  { backgroundColor: colors.primary },
+                  selectedSpot?.id === spot.id
+                    ? [styles.pricePillSelected, { borderColor: colors.text }]
+                    : undefined,
                 ]}
               >
                 <Text style={styles.pillText}>${((spot.pricePerHour ?? 0)).toFixed(0)}</Text>
@@ -256,22 +247,25 @@ export default function MapScreen() {
 
       {/* Search Bar at Top */}
       <TouchableOpacity 
-        style={[styles.searchBarContainer, { top: insets.top + SPACING.md }]}
+        style={[
+          styles.searchBarContainer,
+          { top: insets.top + SPACING.md, backgroundColor: colors.backgroundCard }
+        ]}
         onPress={() => setSearchActive(true)}
         activeOpacity={0.8}
       >
-        <Text style={styles.searchBarText}>🔍 Find parking near…</Text>
+        <Text style={[styles.searchBarText, { color: colors.text }]}>🔍 Find parking near…</Text>
       </TouchableOpacity>
 
       {/* Search Modal */}
       <Modal visible={searchActive} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { marginTop: insets.top + 40 }]}>
-            <Text style={styles.modalTitle}>Search Location</Text>
+          <View style={[styles.modalContent, { marginTop: insets.top + 40, backgroundColor: colors.backgroundCard }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Search Location</Text>
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { backgroundColor: colors.background, color: colors.text }]}
               placeholder="Enter destination address"
-              placeholderTextColor={COLORS.textMuted}
+              placeholderTextColor={colors.textSecondary}
               value={searchText}
               onChangeText={setSearchText}
               autoFocus
@@ -281,41 +275,41 @@ export default function MapScreen() {
               {SEARCH_SUGGESTIONS.map((suggestion) => (
                 <TouchableOpacity
                   key={suggestion.title}
-                  style={styles.suggestionItem}
+                  style={[styles.suggestionItem, { borderBottomColor: colors.border }]}
                   onPress={() => handleSearch(suggestion)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.suggestionText}>{suggestion.title}</Text>
+                  <Text style={[styles.suggestionText, { color: colors.text }]}>{suggestion.title}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
             <TouchableOpacity
-              style={styles.modalButton}
+              style={[styles.modalButton, { backgroundColor: colors.border }]}
               onPress={() => setSearchActive(false)}
               activeOpacity={0.8}
             >
-              <Text style={styles.modalButtonText}>Cancel</Text>
+              <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       {/* Map/List View Toggle - Top Right */}
-      <View style={[styles.viewToggleContainer, { top: insets.top + SPACING.md }]}>
+      <View style={[styles.viewToggleContainer, { top: insets.top + SPACING.md, backgroundColor: colors.backgroundCard }]}>
         <TouchableOpacity 
           onPress={() => setViewMode('map')} 
-          style={[styles.toggleButton, viewMode === 'map' && styles.toggleActive]}
+          style={[styles.toggleButton, viewMode === 'map' && [styles.toggleActive, { backgroundColor: colors.background }]]}
           activeOpacity={0.8}
         >
-          <Text style={[styles.toggleText, viewMode === 'map' && styles.toggleTextActive]}>Map</Text>
+          <Text style={[styles.toggleText, { color: colors.textSecondary }, viewMode === 'map' && [styles.toggleTextActive, { color: colors.primary }]]}>Map</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           onPress={() => setViewMode('list')} 
-          style={[styles.toggleButton, viewMode === 'list' && styles.toggleActive]}
+          style={[styles.toggleButton, viewMode === 'list' && [styles.toggleActive, { backgroundColor: colors.background }]]}
           activeOpacity={0.8}
         >
-          <Text style={[styles.toggleText, viewMode === 'list' && styles.toggleTextActive]}>List</Text>
+          <Text style={[styles.toggleText, { color: colors.textSecondary }, viewMode === 'list' && [styles.toggleTextActive, { color: colors.primary }]]}>List</Text>
         </TouchableOpacity>
       </View>
 
@@ -324,27 +318,27 @@ export default function MapScreen() {
         {!filterMenuExpanded ? (
           // Collapsed state: Compact floating button
           <TouchableOpacity
-            style={styles.filterButton}
+            style={[styles.filterButton, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
             onPress={() => setFilterMenuExpanded(true)}
             activeOpacity={0.8}
           >
-            <Text style={styles.filterButtonText}>Filters</Text>
+            <Text style={[styles.filterButtonText, { color: colors.text }]}>Filters</Text>
             {selectedFilters.length > 0 && (
-              <View style={styles.filterBadge}>
+              <View style={[styles.filterBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
                 <Text style={styles.filterBadgeText}>{selectedFilters.length}</Text>
               </View>
             )}
           </TouchableOpacity>
         ) : (
           // Expanded state: Compact filter panel
-          <View style={styles.filterPanel}>
+          <View style={[styles.filterPanel, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
             <View style={styles.filterHeader}>
-              <Text style={styles.filterTitle}>Filter</Text>
+              <Text style={[styles.filterTitle, { color: colors.textSecondary }]}>Filter</Text>
               <TouchableOpacity 
                 onPress={() => setFilterMenuExpanded(false)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={styles.filterCloseText}>✕</Text>
+                <Text style={[styles.filterCloseText, { color: colors.textSecondary }]}>✕</Text>
               </TouchableOpacity>
             </View>
             
@@ -356,7 +350,7 @@ export default function MapScreen() {
                     key={filter.id}
                     style={[
                       styles.filterOption,
-                      isSelected && styles.filterOptionActive,
+                      isSelected && [styles.filterOptionActive, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }],
                     ]}
                     onPress={() => {
                       if (isSelected) {
@@ -370,13 +364,14 @@ export default function MapScreen() {
                     <Text
                       style={[
                         styles.filterOptionText,
-                        isSelected && styles.filterOptionTextActive,
+                        { color: colors.textSecondary },
+                        isSelected && [styles.filterOptionTextActive, { color: colors.primary }],
                       ]}
                     >
                       {filter.label}
                     </Text>
                     {isSelected && (
-                      <Text style={styles.filterCheckmark}>✓</Text>
+                      <Text style={[styles.filterCheckmark, { color: colors.primary }]}>✓</Text>
                     )}
                   </TouchableOpacity>
                 );
@@ -385,13 +380,15 @@ export default function MapScreen() {
 
             {selectedFilters.length > 0 && (
               <TouchableOpacity
-                style={styles.clearFilterButton}
+                style={[styles.clearFilterButton, { backgroundColor: colors.background, borderTopColor: colors.border }]}
                 onPress={() => {
                   setSelectedFilters([]);
                 }}
                 activeOpacity={0.8}
               >
-                <Text style={styles.clearFilterText}>Clear All ({selectedFilters.length})</Text>
+                <Text style={[styles.clearFilterText, { color: colors.textSecondary }]}>
+                  Clear All ({selectedFilters.length})
+                </Text>
               </TouchableOpacity>
             )}
           </View>
@@ -418,7 +415,7 @@ export default function MapScreen() {
             keyExtractor={(i) => i.id.toString()}
             renderItem={({ item }) => (
               <TouchableOpacity 
-                style={styles.listCard} 
+                style={[styles.listCard, { backgroundColor: colors.backgroundCard }]} 
                 onPress={() => { 
                   setSelectedSpot(item); 
                   setViewMode('map'); 
@@ -426,10 +423,12 @@ export default function MapScreen() {
                 activeOpacity={0.7}
               >
                 <View style={styles.listCardContent}>
-                  <Text style={styles.listCardTitle} numberOfLines={1}>{item.title}</Text>
-                  <Text style={styles.listCardAddress} numberOfLines={1}>{item.address}</Text>
+                  <Text style={[styles.listCardTitle, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
+                  <Text style={[styles.listCardAddress, { color: colors.textSecondary }]} numberOfLines={1}>{item.address}</Text>
                 </View>
-                <Text style={styles.listCardPrice}>${((item.pricePerHour ?? 0)).toFixed(2)}/hr</Text>
+                <Text style={[styles.listCardPrice, { color: colors.primary }]}>
+                  ${((item.pricePerHour ?? 0)).toFixed(2)}/hr
+                </Text>
               </TouchableOpacity>
             )}
             contentContainerStyle={{ paddingBottom: SPACING.lg }}
@@ -446,17 +445,20 @@ export default function MapScreen() {
             {
               transform: [{ translateY: slideAnim }],
               paddingBottom: insets.bottom + SPACING.md,
+              backgroundColor: colors.backgroundCard,
             },
           ]}
         >
-          <View style={styles.cardHandle} />
+          <View style={[styles.cardHandle, { backgroundColor: colors.border }]} />
           <View style={styles.cardContent}>
-            <Text style={styles.cardTitle} numberOfLines={2}>{selectedSpot.title}</Text>
-            <Text style={styles.cardAddress} numberOfLines={2}>{selectedSpot.address}</Text>
-            <Text style={styles.cardPrice}>${((selectedSpot.pricePerHour ?? 0)).toFixed(2)}/hr</Text>
+            <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{selectedSpot.title}</Text>
+            <Text style={[styles.cardAddress, { color: colors.textSecondary }]} numberOfLines={2}>{selectedSpot.address}</Text>
+            <Text style={[styles.cardPrice, { color: colors.primary }]}>
+              ${((selectedSpot.pricePerHour ?? 0)).toFixed(2)}/hr
+            </Text>
 
             <TouchableOpacity
-              style={styles.reserveButton}
+              style={[styles.reserveButton, { backgroundColor: colors.primary }]}
               onPress={() => handleReserve(selectedSpot)}
               activeOpacity={0.8}
             >
@@ -469,36 +471,39 @@ export default function MapScreen() {
       {/* Checkout bottom sheet */}
       <Modal visible={paymentModalVisible} animationType="slide" transparent>
         <View style={styles.paymentModalOverlay}> 
-          <View style={[styles.paymentModalContent, { paddingBottom: insets.bottom + SPACING.md }]}> 
-            <Text style={styles.paymentTitle}>Review & Pay</Text>
+          <View style={[styles.paymentModalContent, { paddingBottom: insets.bottom + SPACING.md, backgroundColor: colors.backgroundCard }]}> 
+            <Text style={[styles.paymentTitle, { color: colors.text }]}>Review & Pay</Text>
 
-            <Text style={styles.paymentSpotTitle} numberOfLines={1}>{selectedSpot?.title}</Text>
-            <Text style={styles.paymentSpotAddress} numberOfLines={1}>{selectedSpot?.address}</Text>
+            <Text style={[styles.paymentSpotTitle, { color: colors.text }]} numberOfLines={1}>{selectedSpot?.title}</Text>
+            <Text style={[styles.paymentSpotAddress, { color: colors.textSecondary }]} numberOfLines={1}>{selectedSpot?.address}</Text>
 
-            <Text style={styles.paymentTimeText}>
+            <Text style={[styles.paymentTimeText, { color: colors.text }]}>
               Time: {reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
               {'–'}{reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
             </Text>
 
             {/* Cost breakdown */}
-            <View style={styles.costBreakdown}>
+            <View style={[styles.costBreakdown, { borderTopColor: colors.border }]}>
               <View style={styles.costRow}>
-                <Text style={styles.costLabel}>Parking</Text>
-                <Text style={styles.costValue}>${reservationTotal.toFixed(2)}</Text>
+                <Text style={[styles.costLabel, { color: colors.text }]}>Parking</Text>
+                <Text style={[styles.costValue, { color: colors.text }]}>${reservationTotal.toFixed(2)}</Text>
               </View>
               <View style={styles.costRow}>
-                <Text style={styles.costLabel}>Service fee</Text>
-                <Text style={styles.costValue}>${(reservationTotal * 0.12).toFixed(2)}</Text>
+                <Text style={[styles.costLabel, { color: colors.text }]}>Service fee</Text>
+                <Text style={[styles.costValue, { color: colors.text }]}>${(reservationTotal * 0.12).toFixed(2)}</Text>
               </View>
-              <View style={styles.costRowTotal}>
-                <Text style={styles.costLabelTotal}>Total</Text>
-                <Text style={styles.costValueTotal}>${(reservationTotal * 1.12).toFixed(2)}</Text>
+              <View style={[styles.costRowTotal, { borderTopColor: colors.border }]}
+              >
+                <Text style={[styles.costLabelTotal, { color: colors.text }]}>Total</Text>
+                <Text style={[styles.costValueTotal, { color: colors.primary }]}>
+                  ${(reservationTotal * 1.12).toFixed(2)}
+                </Text>
               </View>
             </View>
 
             <View style={styles.paymentActions}>
               <TouchableOpacity
-                style={styles.paymentButton}
+                style={[styles.paymentButton, { backgroundColor: colors.primary }]}
                 onPress={() => {
                   alert('Payment successful');
                   setPaymentModalVisible(false);
@@ -514,7 +519,7 @@ export default function MapScreen() {
                 onPress={() => setPaymentModalVisible(false)}
                 activeOpacity={0.7}
               >
-                <Text style={styles.paymentCancelText}>Cancel</Text>
+                <Text style={[styles.paymentCancelText, { color: colors.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -527,7 +532,6 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
@@ -538,7 +542,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: SPACING.md,
     right: SPACING.md,
-    backgroundColor: COLORS.card,
     borderRadius: RADIUS.xl,
     paddingVertical: SPACING.sm,
     paddingHorizontal: SPACING.md,
@@ -551,7 +554,6 @@ const styles = StyleSheet.create({
   },
   searchBarText: {
     fontSize: 16,
-    color: COLORS.text,
   },
 
   // Search Modal
@@ -562,7 +564,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
   },
   modalContent: {
-    backgroundColor: COLORS.card,
     borderRadius: RADIUS.md,
     padding: SPACING.md,
     maxHeight: '75%',
@@ -570,12 +571,9 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: 'white',
     marginBottom: SPACING.md,
   },
   searchInput: {
-    backgroundColor: COLORS.background,
-    color: 'white',
     padding: SPACING.sm,
     borderRadius: RADIUS.sm,
     marginBottom: SPACING.md,
@@ -587,20 +585,16 @@ const styles = StyleSheet.create({
   suggestionItem: {
     paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
   },
   suggestionText: {
-    color: 'white',
     fontSize: 15,
   },
   modalButton: {
-    backgroundColor: '#475569',
     paddingVertical: SPACING.sm,
     marginTop: SPACING.sm,
     borderRadius: RADIUS.sm,
   },
   modalButtonText: {
-    color: 'white',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
@@ -611,7 +605,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: SPACING.md,
     flexDirection: 'row',
-    backgroundColor: COLORS.card,
     borderRadius: RADIUS.md,
     padding: 4,
     shadowColor: '#000',
@@ -629,15 +622,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   toggleActive: {
-    backgroundColor: COLORS.background,
   },
   toggleText: {
-    color: COLORS.textMuted,
     fontSize: 14,
     fontWeight: '600',
   },
   toggleTextActive: {
-    color: COLORS.primary,
     fontWeight: '700',
   },
 
@@ -648,7 +638,6 @@ const styles = StyleSheet.create({
     zIndex: 15,
   },
   filterButton: {
-    backgroundColor: COLORS.card,
     paddingHorizontal: SPACING.sm,
     paddingVertical: SPACING.xs,
     borderRadius: 20,
@@ -660,26 +649,22 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 6,
     borderWidth: 1,
-    borderColor: COLORS.border,
     minHeight: 36,
   },
   filterButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.text,
   },
   filterBadge: {
     position: 'absolute',
     top: -4,
     right: -4,
-    backgroundColor: COLORS.primary,
     borderRadius: 10,
     minWidth: 18,
     height: 18,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: COLORS.background,
     paddingHorizontal: 4,
   },
   filterBadgeText: {
@@ -689,7 +674,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   filterPanel: {
-    backgroundColor: COLORS.card,
     borderRadius: RADIUS.sm,
     padding: SPACING.xs,
     shadowColor: '#000',
@@ -699,7 +683,6 @@ const styles = StyleSheet.create({
     elevation: 8,
     minWidth: 160,
     borderWidth: 1,
-    borderColor: COLORS.border,
   },
   filterHeader: {
     flexDirection: 'row',
@@ -712,13 +695,11 @@ const styles = StyleSheet.create({
   filterTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: COLORS.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   filterCloseText: {
     fontSize: 18,
-    color: COLORS.textMuted,
     fontWeight: '400',
   },
   filterOptions: {
@@ -734,19 +715,15 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   filterOptionActive: {
-    backgroundColor: COLORS.primary + '15',
   },
   filterOptionText: {
     fontSize: 13,
-    color: COLORS.textSecondary,
   },
   filterOptionTextActive: {
-    color: COLORS.primary,
     fontWeight: '600',
   },
   filterCheckmark: {
     fontSize: 14,
-    color: COLORS.primary,
     fontWeight: '700',
   },
   clearFilterButton: {
@@ -754,13 +731,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: SPACING.xs,
     borderRadius: 6,
-    backgroundColor: COLORS.background,
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: COLORS.border,
   },
   clearFilterText: {
-    color: COLORS.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -775,7 +749,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
-    backgroundColor: COLORS.primary,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -784,7 +757,6 @@ const styles = StyleSheet.create({
   },
   pricePillSelected: {
     borderWidth: 3,
-    borderColor: 'white',
     transform: [{ scale: 1.1 }],
   },
   pillText: {
@@ -802,7 +774,6 @@ const styles = StyleSheet.create({
     zIndex: 12,
   },
   listCard: {
-    backgroundColor: COLORS.card,
     padding: SPACING.md,
     borderRadius: RADIUS.md,
     marginBottom: SPACING.sm,
@@ -821,16 +792,13 @@ const styles = StyleSheet.create({
   listCardTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: 'white',
     marginBottom: 4,
   },
   listCardAddress: {
     fontSize: 13,
-    color: COLORS.textMuted,
   },
   listCardPrice: {
     fontSize: 16,
-    color: COLORS.primary,
     fontWeight: '700',
   },
 
@@ -840,7 +808,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: COLORS.card,
     borderTopLeftRadius: RADIUS.lg,
     borderTopRightRadius: RADIUS.lg,
     paddingHorizontal: SPACING.lg,
@@ -854,7 +821,6 @@ const styles = StyleSheet.create({
   cardHandle: {
     width: 40,
     height: 4,
-    backgroundColor: '#475569',
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: SPACING.md,
@@ -865,24 +831,20 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: 'white',
     marginBottom: 4,
     textAlign: 'center',
   },
   cardAddress: {
     fontSize: 14,
-    color: COLORS.textMuted,
     marginBottom: SPACING.sm,
     textAlign: 'center',
   },
   cardPrice: {
     fontSize: 28,
     fontWeight: '700',
-    color: COLORS.primary,
     marginBottom: SPACING.md,
   },
   reserveButton: {
-    backgroundColor: COLORS.primary,
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.lg,
     borderRadius: RADIUS.md,
@@ -904,7 +866,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   paymentModalContent: {
-    backgroundColor: COLORS.card,
     borderTopLeftRadius: RADIUS.lg,
     borderTopRightRadius: RADIUS.lg,
     padding: SPACING.lg,
@@ -913,27 +874,22 @@ const styles = StyleSheet.create({
   paymentTitle: {
     fontSize: 22,
     fontWeight: '700',
-    color: 'white',
     marginBottom: SPACING.md,
   },
   paymentSpotTitle: {
-    color: COLORS.text,
     fontSize: 16,
     marginBottom: 4,
   },
   paymentSpotAddress: {
-    color: COLORS.textMuted,
     fontSize: 14,
     marginBottom: SPACING.sm,
   },
   paymentTimeText: {
-    color: COLORS.text,
     fontSize: 15,
     marginBottom: SPACING.sm,
   },
   costBreakdown: {
     borderTopWidth: 1,
-    borderTopColor: '#334155',
     paddingTop: SPACING.md,
     marginTop: SPACING.sm,
   },
@@ -943,11 +899,9 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.xs,
   },
   costLabel: {
-    color: COLORS.text,
     fontSize: 15,
   },
   costValue: {
-    color: COLORS.text,
     fontSize: 15,
   },
   costRowTotal: {
@@ -956,15 +910,12 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     paddingTop: SPACING.sm,
     borderTopWidth: 1,
-    borderTopColor: '#334155',
   },
   costLabelTotal: {
-    color: 'white',
     fontSize: 17,
     fontWeight: '700',
   },
   costValueTotal: {
-    color: COLORS.primary,
     fontSize: 18,
     fontWeight: '800',
   },
@@ -972,7 +923,6 @@ const styles = StyleSheet.create({
     marginTop: SPACING.lg,
   },
   paymentButton: {
-    backgroundColor: COLORS.primary,
     paddingVertical: SPACING.md,
     borderRadius: RADIUS.md,
     alignItems: 'center',
@@ -990,7 +940,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   paymentCancelText: {
-    color: COLORS.textMuted,
     fontSize: 16,
   },
 });

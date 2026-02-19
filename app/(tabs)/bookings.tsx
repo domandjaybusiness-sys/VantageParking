@@ -1,5 +1,6 @@
 import { AnimatedListItem } from '@/components/ui/animated-list-item';
 import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
+import { useTheme } from '@/contexts/ThemeContext';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -92,6 +93,7 @@ const MOCK_BOOKINGS = [
 ];
 
 export default function BookingsScreen() {
+  const { colorScheme, colors } = useTheme();
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [selectedBooking, setSelectedBooking] = useState<(typeof MOCK_BOOKINGS)[0] | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -137,63 +139,78 @@ export default function BookingsScreen() {
   };
 
   const getStatusColor = (status: string) => {
-    if (status === 'Active') return '#10b981';
-    if (status === 'Confirmed') return '#3b82f6';
-    if (status === 'Pending') return '#f59e0b';
-    if (status === 'Completed') return '#64748b';
-    return '#ef4444';
+    if (status === 'Active') return colors.badgeConfirmed;
+    if (status === 'Confirmed') return colorScheme === 'dark' ? '#60a5fa' : '#3b82f6';
+    if (status === 'Pending') return colors.badgePending;
+    if (status === 'Completed') return colors.textSecondary;
+    return colors.badgeCancelled;
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView>
         {/* Stats Summary */}
         <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{upcomingCount}</Text>
-            <Text style={styles.statLabel}>Upcoming</Text>
+          <View style={[styles.statCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+          >
+            <Text style={[styles.statValue, { color: colors.primary }]}>{upcomingCount}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Upcoming</Text>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>${totalSpent.toFixed(0)}</Text>
-            <Text style={styles.statLabel}>Total Spent</Text>
+          <View style={[styles.statCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+          >
+            <Text style={[styles.statValue, { color: colors.primary }]}>
+              ${totalSpent.toFixed(0)}
+            </Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Spent</Text>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{MOCK_BOOKINGS.filter(b => b.type === 'past').length}</Text>
-            <Text style={styles.statLabel}>Completed</Text>
+          <View style={[styles.statCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+          >
+            <Text style={[styles.statValue, { color: colors.primary }]}>
+              {MOCK_BOOKINGS.filter(b => b.type === 'past').length}
+            </Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Completed</Text>
           </View>
         </View>
 
         {/* Active Parking Session */}
         {activeBooking && (
           <AnimatedListItem index={0} direction="down">
-            <View style={styles.activeSessionCard}>
+            <View style={[
+              styles.activeSessionCard,
+              { backgroundColor: colors.backgroundCard, borderColor: colors.primary, shadowColor: colors.primary }
+            ]}>
               <View style={styles.activeSessionHeader}>
-                <View style={styles.pulseDot} />
-                <Text style={styles.activeSessionTitle}>Active Parking Session</Text>
+                <View style={[styles.pulseDot, { backgroundColor: colors.primary }]} />
+                <Text style={[styles.activeSessionTitle, { color: colors.primary }]}>Active Parking Session</Text>
               </View>
-              <Text style={styles.activeSessionSpot}>{activeBooking.spotName}</Text>
-              <Text style={styles.activeSessionAddress}>{activeBooking.address}</Text>
+              <Text style={[styles.activeSessionSpot, { color: colors.text }]}>{activeBooking.spotName}</Text>
+              <Text style={[styles.activeSessionAddress, { color: colors.textSecondary }]}>
+                {activeBooking.address}
+              </Text>
               
-              <View style={styles.timerContainer}>
-                <Text style={styles.timerLabel}>Time Remaining</Text>
-                <Text style={styles.timerValue}>{getTimeRemaining(activeBooking.endTime)}</Text>
+              <View style={[styles.timerContainer, { backgroundColor: colors.background, borderLeftColor: colors.primary }]}
+              >
+                <Text style={[styles.timerLabel, { color: colors.textSecondary }]}>Time Remaining</Text>
+                <Text style={[styles.timerValue, { color: colors.primary }]}>
+                  {getTimeRemaining(activeBooking.endTime)}
+                </Text>
               </View>
 
               <View style={styles.activeSessionActions}>
                 <TouchableOpacity 
-                  style={styles.activeActionButton}
+                  style={[styles.activeActionButton, { backgroundColor: colors.border }]}
                   onPress={() => Alert.alert('Directions', 'Opening map...')}
                 >
-                  <Text style={styles.activeActionText}>🗺️ Directions</Text>
+                  <Text style={[styles.activeActionText, { color: colors.text }]}>🗺️ Directions</Text>
                 </TouchableOpacity>
                 <TouchableOpacity 
-                  style={styles.activeActionButton}
+                  style={[styles.activeActionButton, { backgroundColor: colors.border }]}
                   onPress={() => Alert.alert('Gate Code', `Your code: ${activeBooking.checkInCode}`)}
                 >
-                  <Text style={styles.activeActionText}>🔑 Gate Code</Text>
+                  <Text style={[styles.activeActionText, { color: colors.text }]}>🔑 Gate Code</Text>
                 </TouchableOpacity>
                 <TouchableOpacity 
-                  style={[styles.activeActionButton, styles.extendButton]}
+                  style={[styles.activeActionButton, styles.extendButton, { backgroundColor: colors.primary }]}
                   onPress={() => Alert.alert('Extend Time', 'Add more parking time?')}
                 >
                   <Text style={[styles.activeActionText, styles.extendText]}>⏱️ Extend</Text>
@@ -208,19 +225,36 @@ export default function BookingsScreen() {
           {['upcoming', 'past'].map((tab) => (
             <TouchableOpacity
               key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
+              style={[
+                styles.tab,
+                { backgroundColor: colors.backgroundCard },
+                activeTab === tab && [styles.tabActive, { backgroundColor: colors.primary }],
+              ]}
               onPress={() => setActiveTab(tab as 'upcoming' | 'past')}
             >
               <Text
                 style={[
                   styles.tabText,
+                  { color: colors.textSecondary },
                   activeTab === tab && styles.tabTextActive,
                 ]}
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </Text>
-              <View style={[styles.tabBadge, activeTab === tab && styles.tabBadgeActive]}>
-                <Text style={[styles.tabBadgeText, activeTab === tab && styles.tabBadgeTextActive]}>
+              <View
+                style={[
+                  styles.tabBadge,
+                  { backgroundColor: colors.border },
+                  activeTab === tab && [styles.tabBadgeActive, { backgroundColor: colors.primary }],
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.tabBadgeText,
+                    { color: colors.textSecondary },
+                    activeTab === tab && styles.tabBadgeTextActive,
+                  ]}
+                >
                   {tab === 'upcoming' ? upcomingCount : MOCK_BOOKINGS.filter(b => b.type === 'past').length}
                 </Text>
               </View>
@@ -235,15 +269,16 @@ export default function BookingsScreen() {
               <AnimatedPressableButton
                 style={[
                   styles.bookingCard,
-                  item.isActive && styles.bookingCardActive,
+                  { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+                  item.isActive && [styles.bookingCardActive, { borderColor: colors.primary }],
                 ]}
                 onPress={() => setSelectedBooking(item)}
               >
                 {/* Header: Spot Name + Status */}
                 <View style={styles.cardHeader}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.spotName}>{item.spotName}</Text>
-                    <Text style={styles.address}>{item.address}</Text>
+                    <Text style={[styles.spotName, { color: colors.text }]}>{item.spotName}</Text>
+                    <Text style={[styles.address, { color: colors.textSecondary }]}>{item.address}</Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
                     <View style={[styles.statusDot, { backgroundColor: getStatusColor(item.status) }]} />
@@ -257,35 +292,36 @@ export default function BookingsScreen() {
                 <View style={styles.cardSection}>
                   <View style={styles.infoRow}>
                     <Text style={styles.iconLabel}>📅</Text>
-                    <Text style={styles.dateTime}>
+                    <Text style={[styles.dateTime, { color: colors.textSecondary }]}>
                       {item.date} • {item.timeStart}–{item.timeEnd}
                     </Text>
                   </View>
                   {activeTab === 'upcoming' && !item.isActive && (
-                    <Text style={styles.countdownText}>Starts {getTimeUntil(item.startTime)}</Text>
+                    <Text style={[styles.countdownText, { color: colors.primary }]}>Starts {getTimeUntil(item.startTime)}</Text>
                   )}
                 </View>
 
                 {/* Price & Duration */}
                 <View style={styles.priceRow}>
-                  <View style={styles.durationBadge}>
-                    <Text style={styles.durationText}>{item.hours}h</Text>
+                  <View style={[styles.durationBadge, { backgroundColor: colors.border }]}
+                  >
+                    <Text style={[styles.durationText, { color: colors.text }]}>{item.hours}h</Text>
                   </View>
-                  <Text style={styles.price}>${item.totalPrice.toFixed(2)}</Text>
+                  <Text style={[styles.price, { color: colors.primary }]}>${item.totalPrice.toFixed(2)}</Text>
                 </View>
 
                 {/* Quick Actions */}
                 <View style={styles.buttonGroup}>
                   <TouchableOpacity 
-                    style={styles.buttonSmall} 
+                    style={[styles.buttonSmall, { backgroundColor: colors.border }]} 
                     onPress={() => setSelectedBooking(item)}
                   >
-                    <Text style={styles.buttonSmallText}>View Details</Text>
+                    <Text style={[styles.buttonSmallText, { color: colors.text }]}>View Details</Text>
                   </TouchableOpacity>
 
                   {activeTab === 'past' && (
                     <TouchableOpacity 
-                      style={[styles.buttonSmall, styles.buttonPrimary]}
+                      style={[styles.buttonSmall, styles.buttonPrimary, { backgroundColor: colors.primary }]}
                       onPress={() => Alert.alert('Book Again', `Rebook ${item.spotName}?`)}
                     >
                       <Text style={styles.buttonPrimaryText}>Book Again</Text>
@@ -294,10 +330,14 @@ export default function BookingsScreen() {
 
                   {activeTab === 'upcoming' && !item.isActive && (
                     <TouchableOpacity 
-                      style={[styles.buttonSmall, styles.buttonOutline]}
+                      style={[
+                        styles.buttonSmall,
+                        styles.buttonOutline,
+                        { borderColor: colors.badgeCancelled }
+                      ]}
                       onPress={() => Alert.alert('Cancel', 'Cancel this booking?')}
                     >
-                      <Text style={styles.buttonOutlineText}>Cancel</Text>
+                      <Text style={[styles.buttonOutlineText, { color: colors.badgeCancelled }]}>Cancel</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -308,10 +348,10 @@ export default function BookingsScreen() {
           {filteredBookings.length === 0 && (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📭</Text>
-              <Text style={styles.emptyTitle}>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
                 {activeTab === 'upcoming' ? 'No Upcoming Bookings' : 'No Past Bookings'}
               </Text>
-              <Text style={styles.emptyText}>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                 {activeTab === 'upcoming' 
                   ? 'Find a parking spot on the Map tab to get started!' 
                   : 'Your completed bookings will appear here.'}
@@ -323,11 +363,11 @@ export default function BookingsScreen() {
 
       {/* Booking Details Modal */}
       <Modal visible={selectedBooking !== null} animationType="slide">
-        <View style={styles.detailsContainer}>
+        <View style={[styles.detailsContainer, { backgroundColor: colors.background }]}>
           {/* Reserve Button */}
-          <View style={styles.modalHeader}>
+          <View style={[styles.modalHeader, { backgroundColor: colors.backgroundCard, borderBottomColor: colors.border }]}>
             <TouchableOpacity
-              style={styles.reserveButton}
+              style={[styles.reserveButton, { backgroundColor: colors.primary }]}
               onPress={() => {
                 if (selectedBooking) {
                   alert(`Reserved: ${selectedBooking.spotName} for $${selectedBooking.totalPrice.toFixed(2)}`);
@@ -344,49 +384,59 @@ export default function BookingsScreen() {
               <>
                 {/* Spot Info */}
                 <View style={styles.detailsSection}>
-                  <Text style={styles.detailsTitle}>{selectedBooking.spotName}</Text>
-                  <Text style={styles.detailsAddress}>{selectedBooking.address}</Text>
+                  <Text style={[styles.detailsTitle, { color: colors.text }]}>{selectedBooking.spotName}</Text>
+                  <Text style={[styles.detailsAddress, { color: colors.textSecondary }]}>{selectedBooking.address}</Text>
                 </View>
 
                 {/* Date & Time Details */}
                 <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>Date & Time</Text>
-                  <Text style={styles.detailsText}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Date & Time</Text>
+                  <Text style={[styles.detailsText, { color: colors.textSecondary }]}>
                     {selectedBooking.date} {selectedBooking.timeStart}–
                     {selectedBooking.timeEnd}
                   </Text>
-                  <Text style={styles.detailsText}>
+                  <Text style={[styles.detailsText, { color: colors.textSecondary }]}>
                     {selectedBooking.hours} hours
                   </Text>
                 </View>
 
                 {/* Check-in Instructions */}
                 <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>Check-in Instructions</Text>
-                  <Text style={styles.instructionBox}>Gate Code: {selectedBooking.checkInCode}</Text>
-                  <Text style={styles.detailsText}>{selectedBooking.instructions}</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Check-in Instructions</Text>
+                  <Text
+                    style={[
+                      styles.instructionBox,
+                      { backgroundColor: colors.backgroundCard, borderLeftColor: colors.primary, color: colors.textSecondary }
+                    ]}
+                  >
+                    Gate Code: {selectedBooking.checkInCode}
+                  </Text>
+                  <Text style={[styles.detailsText, { color: colors.textSecondary }]}>
+                    {selectedBooking.instructions}
+                  </Text>
                 </View>
 
                 {/* Receipt Breakdown */}
                 <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>Receipt</Text>
-                  <View style={styles.receiptRow}>
-                    <Text style={styles.receiptLabel}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Receipt</Text>
+                  <View style={[styles.receiptRow, { borderBottomColor: colors.border }]}>
+                    <Text style={[styles.receiptLabel, { color: colors.textSecondary }]}>
                       {selectedBooking.hours} hrs × ${selectedBooking.pricePerHour.toFixed(2)}/hr
                     </Text>
-                    <Text style={styles.receiptValue}>
+                    <Text style={[styles.receiptValue, { color: colors.text }]}>
                       ${(selectedBooking.hours * selectedBooking.pricePerHour).toFixed(2)}
                     </Text>
                   </View>
                   {selectedBooking.fees > 0 && (
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptLabel}>Service Fee</Text>
-                      <Text style={styles.receiptValue}>${selectedBooking.fees.toFixed(2)}</Text>
+                    <View style={[styles.receiptRow, { borderBottomColor: colors.border }]}>
+                      <Text style={[styles.receiptLabel, { color: colors.textSecondary }]}>Service Fee</Text>
+                      <Text style={[styles.receiptValue, { color: colors.text }]}>${selectedBooking.fees.toFixed(2)}</Text>
                     </View>
                   )}
-                  <View style={[styles.receiptRow, styles.receiptTotal]}>
-                    <Text style={styles.receiptTotalLabel}>Total</Text>
-                    <Text style={styles.receiptTotalValue}>
+                  <View style={[styles.receiptRow, styles.receiptTotal, { borderTopColor: colors.border }]}
+                  >
+                    <Text style={[styles.receiptTotalLabel, { color: colors.text }]}>Total</Text>
+                    <Text style={[styles.receiptTotalValue, { color: colors.primary }]}>
                       ${selectedBooking.totalPrice.toFixed(2)}
                     </Text>
                   </View>
@@ -395,20 +445,32 @@ export default function BookingsScreen() {
                 {/* Action Buttons */}
                 <View style={styles.detailsSection}>
                   <TouchableOpacity
-                    style={styles.directionButton}
+                    style={[styles.directionButton, { backgroundColor: colors.primary }]}
                   >
                     <Text style={styles.directionButtonText}>📍 Get Directions</Text>
                   </TouchableOpacity>
 
                   {activeTab === 'upcoming' && (
                     <>
-                      <TouchableOpacity style={styles.messageButton}>
+                      <TouchableOpacity
+                        style={[
+                          styles.messageButton,
+                          { backgroundColor: colorScheme === 'dark' ? '#60a5fa' : '#3b82f6' }
+                        ]}
+                      >
                         <Text style={styles.messageButtonText}>💬 Message Host</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.supportButton}>
-                        <Text style={styles.supportButtonText}>⚠️ Report Issue</Text>
+                      <TouchableOpacity style={[styles.supportButton, { backgroundColor: colors.border }]}>
+                        <Text style={[styles.supportButtonText, { color: colors.text }]}>⚠️ Report Issue</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={[styles.buttonSmall, styles.buttonCancel, { marginTop: 12 }]} onPress={() => {/* cancel logic */}}>
+                      <TouchableOpacity
+                        style={[
+                          styles.buttonSmall,
+                          styles.buttonCancel,
+                          { backgroundColor: colors.badgeCancelled, marginTop: 12 }
+                        ]}
+                        onPress={() => {/* cancel logic */}}
+                      >
                         <Text style={styles.buttonCancelText}>Cancel Booking</Text>
                       </TouchableOpacity>
                     </>
@@ -418,10 +480,10 @@ export default function BookingsScreen() {
                 {/* Close Button at Bottom */}
                 <View style={styles.detailsSection}>
                   <TouchableOpacity
-                    style={styles.closeButtonBottom}
+                    style={[styles.closeButtonBottom, { backgroundColor: colors.border }]}
                     onPress={() => setSelectedBooking(null)}
                   >
-                    <Text style={styles.closeButtonBottomText}>Close</Text>
+                    <Text style={[styles.closeButtonBottomText, { color: colors.text }]}>Close</Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -436,7 +498,6 @@ export default function BookingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
 
   // Stats Summary
@@ -447,35 +508,28 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#1e293b',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
   },
   statValue: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#10b981',
     marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
-    color: '#94a3b8',
     fontWeight: '600',
   },
 
   // Active Parking Session
   activeSessionCard: {
-    backgroundColor: '#1e293b',
     marginHorizontal: 16,
     marginBottom: 16,
     borderRadius: 16,
     padding: 20,
     borderWidth: 2,
-    borderColor: '#10b981',
-    shadowColor: '#10b981',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 12,
@@ -490,45 +544,37 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#10b981',
     marginRight: 8,
   },
   activeSessionTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#10b981',
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   activeSessionSpot: {
     fontSize: 20,
     fontWeight: '700',
-    color: 'white',
     marginBottom: 4,
   },
   activeSessionAddress: {
     fontSize: 14,
-    color: '#94a3b8',
     marginBottom: 16,
   },
   timerContainer: {
-    backgroundColor: '#0f172a',
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#10b981',
   },
   timerLabel: {
     fontSize: 12,
-    color: '#94a3b8',
     marginBottom: 6,
     fontWeight: '600',
   },
   timerValue: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#10b981',
   },
   activeSessionActions: {
     flexDirection: 'row',
@@ -536,18 +582,15 @@ const styles = StyleSheet.create({
   },
   activeActionButton: {
     flex: 1,
-    backgroundColor: '#334155',
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
   },
   activeActionText: {
-    color: 'white',
     fontSize: 12,
     fontWeight: '600',
   },
   extendButton: {
-    backgroundColor: '#10b981',
   },
   extendText: {
     color: 'white',
@@ -566,15 +609,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    backgroundColor: '#1e293b',
     borderRadius: 10,
     gap: 8,
   },
   tabActive: {
-    backgroundColor: '#10b981',
   },
   tabText: {
-    color: '#94a3b8',
     fontSize: 14,
     fontWeight: '700',
   },
@@ -582,7 +622,6 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   tabBadge: {
-    backgroundColor: '#334155',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
@@ -590,10 +629,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabBadgeActive: {
-    backgroundColor: '#059669',
   },
   tabBadgeText: {
-    color: '#94a3b8',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -608,15 +645,12 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   bookingCard: {
-    backgroundColor: '#1e293b',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#334155',
   },
   bookingCardActive: {
-    borderColor: '#10b981',
     borderWidth: 2,
   },
   cardHeader: {
@@ -628,12 +662,10 @@ const styles = StyleSheet.create({
   spotName: {
     fontSize: 16,
     fontWeight: '700',
-    color: 'white',
     marginBottom: 4,
   },
   address: {
     fontSize: 12,
-    color: '#94a3b8',
   },
   statusBadge: {
     flexDirection: 'row',
@@ -665,12 +697,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   dateTime: {
-    color: '#cbd5e1',
     fontSize: 13,
     fontWeight: '500',
   },
   countdownText: {
-    color: '#10b981',
     fontSize: 12,
     fontWeight: '600',
     marginTop: 4,
@@ -682,18 +712,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   durationBadge: {
-    backgroundColor: '#334155',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
   },
   durationText: {
-    color: '#cbd5e1',
     fontSize: 13,
     fontWeight: '700',
   },
   price: {
-    color: '#10b981',
     fontSize: 20,
     fontWeight: '700',
   },
@@ -703,18 +730,15 @@ const styles = StyleSheet.create({
   },
   buttonSmall: {
     flex: 1,
-    backgroundColor: '#334155',
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
   },
   buttonSmallText: {
-    color: 'white',
     fontSize: 13,
     fontWeight: '600',
   },
   buttonPrimary: {
-    backgroundColor: '#10b981',
   },
   buttonPrimaryText: {
     color: 'white',
@@ -724,10 +748,8 @@ const styles = StyleSheet.create({
   buttonOutline: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#ef4444',
   },
   buttonOutlineText: {
-    color: '#ef4444',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -745,12 +767,10 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: 'white',
     marginBottom: 8,
   },
   emptyText: {
     fontSize: 14,
-    color: '#94a3b8',
     textAlign: 'center',
     lineHeight: 20,
   },
@@ -758,19 +778,15 @@ const styles = StyleSheet.create({
   // Modal Details
   detailsContainer: {
     flex: 1,
-    backgroundColor: '#0f172a',
     paddingTop: 16,
   },
   modalHeader: {
     paddingHorizontal: 16,
     paddingVertical: 20,
     paddingTop: 24,
-    backgroundColor: '#1e293b',
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
   },
   reserveButton: {
-    backgroundColor: '#10b981',
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
@@ -790,29 +806,22 @@ const styles = StyleSheet.create({
   detailsTitle: {
     fontSize: 22,
     fontWeight: '700',
-    color: 'white',
     marginBottom: 8,
   },
   detailsAddress: {
     fontSize: 14,
-    color: '#94a3b8',
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: 'white',
     marginBottom: 12,
   },
   detailsText: {
-    color: '#cbd5e1',
     fontSize: 14,
     marginBottom: 8,
   },
   instructionBox: {
-    backgroundColor: '#1e293b',
     borderLeftWidth: 3,
-    borderLeftColor: '#10b981',
-    color: '#cbd5e1',
     padding: 12,
     borderRadius: 6,
     marginBottom: 8,
@@ -823,36 +832,29 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
   },
   receiptLabel: {
-    color: '#94a3b8',
     fontSize: 13,
   },
   receiptValue: {
-    color: '#cbd5e1',
     fontSize: 13,
     fontWeight: '600',
   },
   receiptTotal: {
     borderBottomWidth: 0,
     borderTopWidth: 2,
-    borderTopColor: '#334155',
     paddingTop: 12,
     marginTop: 12,
   },
   receiptTotalLabel: {
-    color: 'white',
     fontSize: 14,
     fontWeight: '700',
   },
   receiptTotalValue: {
-    color: '#10b981',
     fontSize: 16,
     fontWeight: '700',
   },
   directionButton: {
-    backgroundColor: '#10b981',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -864,7 +866,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   messageButton: {
-    backgroundColor: '#3b82f6',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -876,29 +877,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   supportButton: {
-    backgroundColor: '#e5e7eb',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
   },
   supportButtonText: {
-    color: '#0f172a',
     fontSize: 14,
     fontWeight: '600',
   },
   closeButtonBottom: {
-    backgroundColor: '#475569',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
   },
   closeButtonBottomText: {
-    color: 'white',
     fontSize: 14,
     fontWeight: '600',
   },
   buttonCancel: {
-    backgroundColor: '#ef4444',
   },
   buttonCancelText: {
     color: 'white',
