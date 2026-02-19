@@ -58,7 +58,6 @@ const FILTER_OPTIONS = [
   { id: 'under10', label: 'Under $10' },
   { id: 'driveway', label: 'Driveway' },
   { id: 'garage', label: 'Garage' },
-  { id: 'ev', label: 'EV Charging' },
 ];
 
 export default function MapScreen() {
@@ -186,7 +185,6 @@ export default function MapScreen() {
       if (filterId === 'available') return true; // demo: all available
       if (filterId === 'driveway') return s.title.toLowerCase().includes('driveway');
       if (filterId === 'garage') return s.title.toLowerCase().includes('garage');
-      if (filterId === 'ev') return false; // demo has no EV data
       return true;
     });
   });
@@ -299,7 +297,7 @@ export default function MapScreen() {
             onPress={() => setFilterMenuExpanded(true)}
             activeOpacity={0.8}
           >
-            <Text style={styles.filterButtonText}>⚡</Text>
+            <Text style={styles.filterButtonText}>Filters</Text>
             {selectedFilters.length > 0 && (
               <View style={styles.filterBadge}>
                 <Text style={styles.filterBadgeText}>{selectedFilters.length}</Text>
@@ -619,8 +617,8 @@ const styles = StyleSheet.create({
   },
   filterButton: {
     backgroundColor: COLORS.card,
-    width: 40,
-    height: 40,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
@@ -631,9 +629,12 @@ const styles = StyleSheet.create({
     elevation: 6,
     borderWidth: 1,
     borderColor: COLORS.border,
+    minHeight: 36,
   },
   filterButtonText: {
-    fontSize: 18,
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.text,
   },
   filterBadge: {
     position: 'absolute',
