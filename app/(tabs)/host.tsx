@@ -1,16 +1,18 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Design } from '@/constants/theme';
+import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-    Alert,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View
 } from 'react-native';
 
 export default function HostScreen() {
+  const router = useRouter();
   // placeholder data
   const listings = [
     {
@@ -55,7 +57,7 @@ const [showEarnings, setShowEarnings] = React.useState(false);
   };
   
   const onAddNew = () => {
-    Alert.alert('Add new spot', undefined, [{ text: 'OK' }]);
+    router.push('/add-listing');
   };
 
   const onSummaryPress = () => {
