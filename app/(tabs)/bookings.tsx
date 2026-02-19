@@ -1,16 +1,14 @@
 import { AnimatedListItem } from '@/components/ui/animated-list-item';
 import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
-import Badge from '@/components/ui/badge';
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  FlatList,
+  Alert,
   Modal,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
-  Alert,
+  View
 } from 'react-native';
 
 // Mock booking data
