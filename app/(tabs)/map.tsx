@@ -35,13 +35,6 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c;
 };
 
-// Mock search locations
-const SEARCH_SUGGESTIONS = [
-  { title: 'Market St, San Francisco', lat: 37.7749, lng: -122.4194 },
-  { title: 'Marina District, San Francisco', lat: 37.805, lng: -122.41 },
-  { title: 'Valencia St, San Francisco', lat: 37.76, lng: -122.41 },
-];
-
 const FILTER_OPTIONS = [
   { id: 'available', label: 'Available Now' },
   { id: 'under10', label: 'Under $10' },
@@ -58,6 +51,9 @@ export default function MapScreen() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [searchActive, setSearchActive] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [searchResults, setSearchResults] = useState<{ id: string; title: string; lat: number; lng: number }[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [mapRef, setMapRef] = useState<MapView | null>(null);
   const [searchLocation, setSearchLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
@@ -195,6 +191,69 @@ export default function MapScreen() {
     }
   };
 
+  useEffect(() => {
+    if (!searchActive) return;
+    const trimmed = searchText.trim();
+
+    if (trimmed.length < 3) {
+      setSearchResults([]);
+      setSearchError(null);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        setSearchError(null);
+        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(trimmed)}&limit=6&lang=en`;
+        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+        const json = await res.json();
+        const nextResults = (json.features || [])
+          .map((feature: any) => {
+            const props = feature.properties || {};
+            const coords = feature.geometry?.coordinates || [];
+            const lon = coords[0];
+            const lat = coords[1];
+            if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+
+            const country = String(props.countrycode || '').toLowerCase();
+            if (country && country !== 'us') return null;
+
+            const title = [
+              props.housenumber,
+              props.name || props.street,
+              props.city || props.town || props.village,
+              props.state,
+              props.postcode,
+            ].filter(Boolean).join(', ');
+
+            return {
+              id: String(props.osm_id || `${lat},${lon}`),
+              title: title || props.name || props.city || 'Unknown location',
+              lat,
+              lng: lon,
+            };
+          })
+          .filter(Boolean);
+
+        if (nextResults.length === 0) {
+          setSearchError('No results found.');
+          setSearchResults([]);
+          return;
+        }
+
+        setSearchResults(nextResults as { id: string; title: string; lat: number; lng: number }[]);
+      } catch (error) {
+        setSearchError('Network error while searching.');
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [searchText, searchActive]);
+
   const appliedSpots = filteredSpots.filter((s) => {
     if (selectedFilters.length === 0) return true;
     
@@ -271,12 +330,23 @@ export default function MapScreen() {
               autoFocus
             />
 
+            {searchError && (
+              <Text style={[styles.searchHint, { color: colors.badgeCancelled }]}>{searchError}</Text>
+            )}
+
+            {!searchError && searchText.trim().length < 3 && (
+              <Text style={[styles.searchHint, { color: colors.textSecondary }]}>Type at least 3 characters</Text>
+            )}
+
             <ScrollView style={styles.suggestionsList}>
-              {SEARCH_SUGGESTIONS.map((suggestion) => (
+              {searchLoading && (
+                <Text style={[styles.searchHint, { color: colors.textSecondary }]}>Searching...</Text>
+              )}
+              {!searchLoading && searchResults.map((suggestion) => (
                 <TouchableOpacity
-                  key={suggestion.title}
+                  key={suggestion.id}
                   style={[styles.suggestionItem, { borderBottomColor: colors.border }]}
-                  onPress={() => handleSearch(suggestion)}
+                  onPress={() => handleSearch({ title: suggestion.title, lat: suggestion.lat, lng: suggestion.lng })}
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.suggestionText, { color: colors.text }]}>{suggestion.title}</Text>
@@ -581,6 +651,10 @@ const styles = StyleSheet.create({
   },
   suggestionsList: {
     maxHeight: 300,
+  },
+  searchHint: {
+    fontSize: 12,
+    marginBottom: SPACING.sm,
   },
   suggestionItem: {
     paddingVertical: SPACING.sm,
