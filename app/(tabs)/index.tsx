@@ -2,11 +2,11 @@ import Card from '@/components/ui/card';
 import PrimaryButton from '@/components/ui/primary-button';
 import { Colors, Design } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '../../lib/supabase';
-import * as Location from 'expo-location';
 
 export default function HomeScreen() {
   const [driveways, setDriveways] = useState<any[] | null>(null);

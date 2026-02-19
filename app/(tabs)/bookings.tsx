@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Design } from '@/constants/theme';
 
 // Mock booking data
 const MOCK_BOOKINGS = [
@@ -300,9 +299,9 @@ const styles = StyleSheet.create({
   },
   bookingCard: {
     backgroundColor: '#1e293b',
-    borderRadius: Design.radius,
-    padding: Design.spacing.md,
-    marginBottom: Design.spacing.md,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
     borderLeftWidth: 4,
     borderLeftColor: '#10b981',
   },
@@ -333,7 +332,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cardSection: {
-    marginBottom: Design.spacing.md,
+    marginBottom: 12,
   },
   dateTime: {
     color: '#cbd5e1',
@@ -351,13 +350,13 @@ const styles = StyleSheet.create({
   buttonSmall: {
     flex: 1,
     backgroundColor: '#475569',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 8,
+    borderRadius: 6,
     alignItems: 'center',
   },
   buttonSmallText: {
     color: 'white',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   buttonCancel: {

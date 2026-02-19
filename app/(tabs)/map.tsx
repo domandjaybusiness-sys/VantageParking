@@ -1,8 +1,8 @@
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Animated, FlatList, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useLocalSearchParams } from 'expo-router';
 
 // Demo parking spots with address info for searching
 const DEMO_SPOTS = [
