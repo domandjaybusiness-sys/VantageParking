@@ -1,13 +1,15 @@
+import Badge from '@/components/ui/badge';
 import { useState } from 'react';
 import {
-    FlatList,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { Design } from '@/constants/theme';
 
 // Mock booking data
 const MOCK_BOOKINGS = [
@@ -114,14 +116,7 @@ export default function BookingsScreen() {
                 <Text style={styles.spotName}>{item.spotName}</Text>
                 <Text style={styles.address}>{item.address}</Text>
               </View>
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: getStatusColor(item.status) },
-                ]}
-              >
-                <Text style={styles.statusText}>{item.status}</Text>
-              </View>
+              <Badge status={item.status} />
             </View>
 
             {/* Date & Time */}
@@ -138,17 +133,9 @@ export default function BookingsScreen() {
 
             {/* Buttons */}
             <View style={styles.buttonGroup}>
-              <TouchableOpacity style={styles.buttonSmall}>
+              <TouchableOpacity style={styles.buttonSmall} onPress={() => setSelectedBooking(item)}>
                 <Text style={styles.buttonSmallText}>View Details</Text>
               </TouchableOpacity>
-
-              {activeTab === 'upcoming' && (
-                <TouchableOpacity
-                  style={[styles.buttonSmall, styles.buttonCancel]}
-                >
-                  <Text style={styles.buttonCancelText}>Cancel</Text>
-                </TouchableOpacity>
-              )}
 
               {activeTab === 'past' && (
                 <>
@@ -253,6 +240,9 @@ export default function BookingsScreen() {
                       <TouchableOpacity style={styles.supportButton}>
                         <Text style={styles.supportButtonText}>⚠️ Report Issue</Text>
                       </TouchableOpacity>
+                      <TouchableOpacity style={[styles.buttonSmall, styles.buttonCancel, { marginTop: 12 }]} onPress={() => {/* cancel logic */}}>
+                        <Text style={styles.buttonCancelText}>Cancel Booking</Text>
+                      </TouchableOpacity>
                     </>
                   )}
                 </View>
@@ -310,9 +300,9 @@ const styles = StyleSheet.create({
   },
   bookingCard: {
     backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: Design.radius,
+    padding: Design.spacing.md,
+    marginBottom: Design.spacing.md,
     borderLeftWidth: 4,
     borderLeftColor: '#10b981',
   },
@@ -343,7 +333,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cardSection: {
-    marginBottom: 12,
+    marginBottom: Design.spacing.md,
   },
   dateTime: {
     color: '#cbd5e1',
@@ -361,13 +351,13 @@ const styles = StyleSheet.create({
   buttonSmall: {
     flex: 1,
     backgroundColor: '#475569',
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
     alignItems: 'center',
   },
   buttonSmallText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   buttonCancel: {

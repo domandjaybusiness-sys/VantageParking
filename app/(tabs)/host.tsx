@@ -1,5 +1,5 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
+import { Colors, Design } from '@/constants/theme';
 import React, { useMemo } from 'react';
 import {
     Alert,
@@ -210,12 +210,12 @@ const [showEarnings, setShowEarnings] = React.useState(false);
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.light.background },
+  container: { flex: 1, backgroundColor: Colors.dark.background },
   summaryCard: {
-    backgroundColor: '#fff',
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: Colors.dark.backgroundCard,
+    margin: Design.spacing.lg,
+    padding: Design.spacing.md,
+    borderRadius: Design.radius,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -225,12 +225,12 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 28,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: Colors.dark.text,
   },
   summaryValueLarge: {
     fontSize: 40,
     fontWeight: '800',
-    color: Colors.light.text,
+    color: Colors.dark.text,
   },
   summaryLabel: {
     fontSize: 14,
@@ -238,8 +238,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   earningsBackground: {
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: Design.radius,
+    padding: Design.spacing.md,
   },
   earningsHeader: {
     flexDirection: 'row',
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 8,
     borderRadius: 8,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.dark.backgroundCard,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -271,19 +271,19 @@ const styles = StyleSheet.create({
   },
   monthSelectorText: {
     fontSize: 12,
-    color: Colors.light.tint,
+    color: Colors.dark.tint,
     fontWeight: '600',
   },
   statsRow: {
     flexDirection: 'row',
-    marginTop: 12,
+    marginTop: Design.spacing.md,
   },
   statCard: {
     flex: 1,
     alignItems: 'center',
     padding: 12,
     marginHorizontal: 4,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.dark.backgroundCard,
     borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -294,12 +294,12 @@ const styles = StyleSheet.create({
   statNumber: {
     fontSize: 18,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: Colors.dark.text,
     marginTop: 4,
   },
   statLabel: {
     fontSize: 12,
-    color: '#666',
+    color: '#94a3b8',
     marginTop: 2,
   },
   summaryRow: {
@@ -321,52 +321,52 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 4,
-    color: Colors.light.text,
+    color: Colors.dark.text,
   },
   listingCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    backgroundColor: Colors.dark.backgroundCard,
+    borderRadius: Design.radius,
     borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 12,
-    marginHorizontal: 16,
-    marginVertical: 6,
+    borderColor: Colors.dark.border,
+    padding: Design.spacing.md,
+    marginHorizontal: Design.spacing.md,
+    marginVertical: Design.spacing.sm,
   },
   listingThumb: {
-    width: 48,
-    height: 48,
+    width: 56,
+    height: 56,
     borderRadius: 8,
-    backgroundColor: '#e5e7eb',
-    marginRight: 12,
+    backgroundColor: '#0b1220',
+    marginRight: Design.spacing.md,
   },
   listingInfo: { flex: 1 },
-  listingName: { fontSize: 16, fontWeight: '600', color: Colors.light.text },
-  listingAddress: { fontSize: 12, color: '#888', marginTop: 2 },
-  listingPrice: { fontSize: 16, fontWeight: '700', color: Colors.light.tint, marginRight: 8 },
+  listingName: { fontSize: 16, fontWeight: '600', color: Colors.dark.text },
+  listingAddress: { fontSize: 12, color: Colors.dark.textSecondary, marginTop: 2 },
+  listingPrice: { fontSize: 16, fontWeight: '700', color: Colors.dark.tint, marginRight: 8 },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     marginRight: 8,
   },
-  statusActive: { backgroundColor: '#d1fae5' },
-  statusPaused: { backgroundColor: '#f3f4f6' },
-  statusTextActive: { color: '#047857', fontSize: 12, fontWeight: '600' },
-  statusTextPaused: { color: '#6b7280', fontSize: 12, fontWeight: '600' },
+  statusActive: { backgroundColor: '#083a2a' },
+  statusPaused: { backgroundColor: '#1f2937' },
+  statusTextActive: { color: '#10b981', fontSize: 12, fontWeight: '600' },
+  statusTextPaused: { color: '#94a3b8', fontSize: 12, fontWeight: '600' },
   listingCardPressed: {
     transform: [{ scale: 0.98 }],
     shadowOpacity: 0.2,
   },
   addButton: {
-    margin: 16,
-    borderRadius: 12,
+    margin: Design.spacing.lg,
+    borderRadius: Design.radius,
     overflow: 'hidden',
   },
   addButtonBackground: {
-    paddingVertical: 16,
-    borderRadius: 12,
+    paddingVertical: Design.spacing.md,
+    borderRadius: Design.radius,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   earningsModal: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.dark.backgroundCard,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     padding: 16,
@@ -408,8 +408,8 @@ const styles = StyleSheet.create({
   tabButtonActive: {
     borderBottomColor: Colors.light.tint,
   },
-  tabText: { color: '#555', fontSize: 16 },
-  tabTextActive: { color: Colors.light.tint, fontSize: 16, fontWeight: '600' },
+  tabText: { color: '#94a3b8', fontSize: 16 },
+  tabTextActive: { color: Colors.dark.tint, fontSize: 16, fontWeight: '600' },
   chartContainer: {
     flexDirection: 'row',
     height: 100,
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
   },
   chartBar: {
     width: 20,
-    backgroundColor: Colors.light.tint,
+    backgroundColor: Colors.dark.tint,
   },
   subHeader: { fontSize: 16, fontWeight: '600', marginTop: 8, marginBottom: 4 },
   bookingRow: {

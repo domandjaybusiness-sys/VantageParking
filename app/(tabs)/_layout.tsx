@@ -40,7 +40,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="host"
         options={{
-          title: 'Host',
+          title: 'Earn',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="square.and.pencil" color={color} />,
         }}
       />
@@ -51,13 +51,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.crop.circle" color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
+      
     </Tabs>
   );
 }

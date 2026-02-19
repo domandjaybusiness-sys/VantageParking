@@ -1,6 +1,8 @@
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useEffect, useState } from 'react';
-import { Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, FlatList, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useLocalSearchParams } from 'expo-router';
 
 // Demo parking spots with address info for searching
 const DEMO_SPOTS = [
@@ -59,10 +61,35 @@ export default function MapScreen() {
   const [mapRef, setMapRef] = useState<MapView | null>(null);
   const [searchLocation, setSearchLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [reservationTotal, setReservationTotal] = useState<number>(0);
   const [reservationStart, setReservationStart] = useState<Date | null>(null);
   const [reservationEnd, setReservationEnd] = useState<Date | null>(null);
+
+  const params = useLocalSearchParams();
+
+  // Handle opening search from external navigation
+  useEffect(() => {
+    if (params.openSearch === 'true') {
+      setSearchActive(true);
+    }
+  }, [params.openSearch]);
+
+  // Handle centering map on provided coordinates
+  useEffect(() => {
+    if (params.lat && params.lng && mapRef) {
+      const lat = parseFloat(params.lat as string);
+      const lng = parseFloat(params.lng as string);
+      setSearchLocation({ lat, lng });
+      mapRef.animateToRegion({
+        latitude: lat,
+        longitude: lng,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }, 1000);
+    }
+  }, [params.lat, params.lng, mapRef]);
 
   useEffect(() => {
     // Show all spots or filter by search location
@@ -137,7 +164,19 @@ export default function MapScreen() {
     }
   };
 
-  const markerSize = 50 + zoomLevel * 15;
+  const markerSize = 28 + zoomLevel * 6;
+
+  const theme = useColorScheme() ?? 'light';
+
+  const appliedSpots = filteredSpots.filter((s) => {
+    if (!selectedFilter) return true;
+    if (selectedFilter === 'Under $10') return s.pricePerHour < 10;
+    if (selectedFilter === 'Available now') return true; // demo: all available
+    if (selectedFilter === 'Driveway') return s.title.toLowerCase().includes('driveway');
+    if (selectedFilter === 'Garage') return s.title.toLowerCase().includes('garage');
+    if (selectedFilter === 'EV') return false; // demo has no EV data
+    return true;
+  });
 
   return (
     <View style={styles.container}>
@@ -153,17 +192,22 @@ export default function MapScreen() {
         }}
         onRegionChangeComplete={handleRegionChange}
       >
-        {filteredSpots.map((spot) => (
-          <Marker
-            key={spot.id}
-            coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
-            onPress={() => handleMarkerPress(spot)}
-          >
-            <TouchableOpacity style={[styles.markerPin, { width: markerSize, height: markerSize }]}>
-              <Text style={styles.markerPrice}>${spot.pricePerHour.toFixed(2)}</Text>
-            </TouchableOpacity>
-          </Marker>
-        ))}
+          {appliedSpots.map((spot) => (
+            <Marker
+              key={spot.id}
+              coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
+              onPress={() => handleMarkerPress(spot)}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.pricePill,
+                  selectedSpot?.id === spot.id ? styles.pricePillSelected : undefined,
+                ]}
+              >
+                <Text style={styles.pillText}>${spot.pricePerHour.toFixed(0)}</Text>
+              </TouchableOpacity>
+            </Marker>
+          ))}
       </MapView>
 
       {/* Search Bar at Top */}
@@ -209,11 +253,11 @@ export default function MapScreen() {
         </View>
       </Modal>
 
-      {/* Filter Chips (optional) */}
-      {searchLocation && (
-        <View style={styles.filterContainer}>
+      {/* Filters + Map/List toggle */}
+      <View style={styles.controlsContainer} pointerEvents="box-none">
+        <View style={styles.filtersRow}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-            {['Price', 'Covered', 'EV', 'Time'].map((filter) => (
+            {['Available now', 'Under $10', 'Driveway', 'Garage', 'EV'].map((filter) => (
               <TouchableOpacity
                 key={filter}
                 style={[
@@ -233,6 +277,34 @@ export default function MapScreen() {
               </TouchableOpacity>
             ))}
           </ScrollView>
+
+          <View style={styles.viewToggle}>
+            <TouchableOpacity onPress={() => setViewMode('map')} style={[styles.toggleButton, viewMode === 'map' && styles.toggleActive]}>
+              <Text style={[styles.toggleText, viewMode === 'map' && styles.toggleTextActive]}>Map</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setViewMode('list')} style={[styles.toggleButton, viewMode === 'list' && styles.toggleActive]}>
+              <Text style={[styles.toggleText, viewMode === 'list' && styles.toggleTextActive]}>List</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      {/* List view overlay */}
+      {viewMode === 'list' && (
+        <View style={styles.listOverlay}>
+          <FlatList
+            data={appliedSpots.sort((a,b) => a.pricePerHour - b.pricePerHour)}
+            keyExtractor={(i) => i.id.toString()}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.listCard} onPress={() => { setSelectedSpot(item); setViewMode('map'); }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{item.title}</Text>
+                  <Text style={styles.cardAddress}>{item.address}</Text>
+                </View>
+                <Text style={styles.cardPriceSmall}>${item.pricePerHour.toFixed(2)}/hr</Text>
+              </TouchableOpacity>
+            )}
+          />
         </View>
       )}
 
@@ -261,32 +333,52 @@ export default function MapScreen() {
         </Animated.View>
       )}
 
-      {/* Review & Pay Modal */}
+      {/* Checkout bottom sheet */}
       <Modal visible={paymentModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { marginTop: 180 }]}> 
+        <View style={[styles.modalOverlay, { justifyContent: 'flex-end', paddingTop: 0 }]}> 
+          <View style={[styles.modalContent, { borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' }]}> 
             <Text style={{ fontSize: 18, fontWeight: '700', color: 'white', marginBottom: 12 }}>Review & Pay</Text>
 
-            <Text style={{ color: '#cbd5e1', marginBottom: 8 }}>Spot: {selectedSpot?.title}</Text>
-            <Text style={{ color: '#cbd5e1', marginBottom: 8 }}>
+            <Text style={{ color: '#cbd5e1', marginBottom: 6 }}>{selectedSpot?.title}</Text>
+            <Text style={{ color: '#94a3b8', marginBottom: 12 }}>{selectedSpot?.address}</Text>
+
+            <Text style={{ color: '#cbd5e1', marginBottom: 6 }}>
               Time: {reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
               {'–'}{reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
             </Text>
-            <Text style={{ color: '#cbd5e1', marginBottom: 18 }}>Total: ${reservationTotal.toFixed(2)}</Text>
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            {/* Cost breakdown */}
+            <View style={{ borderTopWidth: 1, borderTopColor: '#111827', paddingTop: 12, marginTop: 8 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={{ color: '#cbd5e1' }}>Parking</Text>
+                <Text style={{ color: '#cbd5e1' }}>${reservationTotal.toFixed(2)}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={{ color: '#cbd5e1' }}>Service fee</Text>
+                <Text style={{ color: '#cbd5e1' }}>${(reservationTotal * 0.12).toFixed(2)}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                <Text style={{ color: 'white', fontWeight: '700' }}>Total</Text>
+                <Text style={{ color: '#10b981', fontWeight: '800' }}>${(reservationTotal * 1.12).toFixed(2)}</Text>
+              </View>
+            </View>
+
+            <View style={{ marginTop: 18 }}>
               <TouchableOpacity
-                style={[styles.modalButton, { flex: 1, marginRight: 8, backgroundColor: '#475569' }]}
-                onPress={handlePaymentBack}
+                style={[styles.modalButton, { backgroundColor: '#10b981' }]}
+                onPress={() => {
+                  // simulate payment success
+                  // show confirmation inside modal
+                  alert('Payment successful');
+                  setPaymentModalVisible(false);
+                  handleCardClose();
+                }}
               >
-                <Text style={styles.modalButtonText}>Back</Text>
+                <Text style={styles.modalButtonText}>Pay ${(reservationTotal * 1.12).toFixed(2)}</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.modalButton, { flex: 1, marginLeft: 8, backgroundColor: '#10b981' }]}
-                onPress={handleConfirmPayment}
-              >
-                <Text style={styles.modalButtonText}>Confirm Payment</Text>
+              <TouchableOpacity style={{ marginTop: 12 }} onPress={handlePaymentBack}>
+                <Text style={{ color: '#94a3b8', textAlign: 'center' }}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -309,7 +401,7 @@ const styles = StyleSheet.create({
     top: 100,
     left: 16,
     right: 16,
-    backgroundColor: 'white',
+    backgroundColor: '#0f172a',
     borderRadius: 24,
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -322,7 +414,7 @@ const styles = StyleSheet.create({
   },
   searchBarText: {
     fontSize: 16,
-    color: '#64748b',
+    color: '#cbd5e1',
   },
   modalOverlay: {
     flex: 1,
@@ -381,7 +473,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   filterChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderRadius: 16,
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -391,26 +483,59 @@ const styles = StyleSheet.create({
     backgroundColor: '#10b981',
   },
   filterChipText: {
-    color: '#0f172a',
+    color: '#cbd5e1',
     fontSize: 13,
     fontWeight: '600',
   },
   filterChipTextActive: {
     color: 'white',
   },
+  controlsContainer: {
+    position: 'absolute',
+    top: 160,
+    left: 16,
+    right: 16,
+    zIndex: 11,
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  viewToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12,
+    padding: 4,
+    marginLeft: 8,
+  },
+  toggleButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  toggleActive: {
+    backgroundColor: '#0b1220',
+  },
+  toggleText: { color: '#cbd5e1' },
+  toggleTextActive: { color: '#10b981', fontWeight: '700' },
   markerPin: {
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 50,
-    backgroundColor: 'rgba(16, 185, 129, 0.95)',
-    borderWidth: 3,
+  },
+  pricePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#10b981',
+    borderWidth: 0,
+  },
+  pricePillSelected: {
+    borderWidth: 2,
     borderColor: 'white',
+    transform: [{ scale: 1.05 }],
   },
-  markerPrice: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: 'white',
-  },
+  pillText: { color: 'white', fontWeight: '700' },
   card: {
     position: 'absolute',
     bottom: 0,
@@ -426,6 +551,23 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 10,
   },
+  listOverlay: {
+    position: 'absolute',
+    top: 220,
+    left: 16,
+    right: 16,
+    bottom: 16,
+    zIndex: 12,
+  },
+  listCard: {
+    backgroundColor: '#0f172a',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardPriceSmall: { color: '#10b981', fontWeight: '700', marginLeft: 12 },
   cardContent: {
     alignItems: 'center',
   },

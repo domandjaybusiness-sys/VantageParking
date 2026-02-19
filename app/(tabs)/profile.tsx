@@ -1,6 +1,7 @@
 import { IconSymbol, IconSymbolName } from '@/components/ui/icon-symbol';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Design } from '@/constants/theme';
 
 export default function ProfileScreen() {
   // fake user data for UI layout; in a real app this would come from state/props
@@ -12,8 +13,8 @@ export default function ProfileScreen() {
 
   // make sure icons match the names defined in IconSymbol
   const menuItems: { title: string; icon: IconSymbolName }[] = [
-    { title: 'Payments', icon: 'creditcard' },
-    { title: 'Ride History', icon: 'clock' },
+    { title: 'Wallet', icon: 'creditcard' },
+    { title: 'Parking History', icon: 'clock' },
     { title: 'Settings', icon: 'gearshape' },
     { title: 'Help', icon: 'questionmark.circle' },
     { title: 'Log Out', icon: 'rectangle.portrait.and.arrow.right' },
@@ -54,6 +55,24 @@ export default function ProfileScreen() {
           </Pressable>
         ))}
       </View>
+      
+      <View style={{ padding: 16 }}>
+        <Text style={{ color: 'white', fontWeight: '700', marginBottom: 8 }}>Verification</Text>
+        <View style={{ backgroundColor: '#0f172a', padding: 12, borderRadius: 8 }}>
+          <Text style={{ color: '#94a3b8' }}>Email verified</Text>
+          <Text style={{ color: '#94a3b8' }}>Phone verified</Text>
+        </View>
+
+        <Text style={{ color: 'white', fontWeight: '700', marginTop: 16, marginBottom: 8 }}>Support</Text>
+        <View style={{ backgroundColor: '#0f172a', padding: 12, borderRadius: 8 }}>
+          <Text style={{ color: '#94a3b8' }}>Contact support for payments, bookings, or hosts.</Text>
+        </View>
+
+        <Text style={{ color: 'white', fontWeight: '700', marginTop: 16, marginBottom: 8 }}>Legal</Text>
+        <View style={{ backgroundColor: '#0f172a', padding: 12, borderRadius: 8 }}>
+          <Text style={{ color: '#94a3b8' }}>Terms · Privacy</Text>
+        </View>
+      </View>
       {/* settings submenu overlay */}
       {showSettingsMenu && (
         <View style={styles.overlay} pointerEvents="box-none">
@@ -80,28 +99,28 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
+  container: { flex: 1, backgroundColor: '#0b1220' },
   profileHeader: {
-    paddingTop: 60,
-    paddingBottom: 32,
+    paddingTop: Design.spacing.lg + 16,
+    paddingBottom: Design.spacing.lg,
     alignItems: 'center',
     backgroundColor: '#1f2937',
   },
   name: { fontSize: 22, fontWeight: '700', color: 'white', marginTop: 8 },
   email: { fontSize: 14, color: '#94a3b8', marginTop: 2 },
   rating: { fontSize: 16, color: '#fbbf24', marginTop: 4 },
-  menuContainer: { paddingVertical: 16 },
+  menuContainer: { paddingVertical: Design.spacing.md },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'white',
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 8,
+    paddingVertical: Design.spacing.sm,
+    paddingHorizontal: Design.spacing.md,
+    backgroundColor: '#0f172a',
+    marginHorizontal: Design.spacing.md,
+    marginBottom: Design.spacing.sm,
+    borderRadius: Design.radius,
   },
-  menuText: { flex: 1, marginLeft: 12, fontSize: 16, color: '#111' },
+  menuText: { flex: 1, marginLeft: 12, fontSize: 16, color: 'white' },
 
   overlay: {
     ...StyleSheet.absoluteFillObject,
