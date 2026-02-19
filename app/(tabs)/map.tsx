@@ -1,8 +1,8 @@
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getListings, Listing, subscribe } from '@/lib/listings';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Animated, FlatList, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, FlatList, Modal, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -143,6 +143,37 @@ export default function MapScreen() {
       useNativeDriver: true,
     }).start(() => setSelectedSpot(null));
   };
+
+  const cardPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const isVerticalSwipe = Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+        return gestureState.dy > 6 && isVerticalSwipe;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        slideAnim.setValue(Math.max(0, gestureState.dy));
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const shouldClose = gestureState.dy > 80 || gestureState.vy > 0.9;
+
+        if (shouldClose) {
+          handleCardClose();
+        } else {
+          Animated.spring(slideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      },
+    })
+  ).current;
 
   const handleReserve = (spot: Listing) => {
     const start = new Date();
@@ -409,6 +440,7 @@ export default function MapScreen() {
       {/* Bottom Sheet Card */}
       {selectedSpot && (
         <Animated.View
+          {...cardPanResponder.panHandlers}
           style={[
             styles.card,
             {
