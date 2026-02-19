@@ -71,7 +71,7 @@ export default function MapScreen() {
   const [searchText, setSearchText] = useState('');
   const [mapRef, setMapRef] = useState<MapView | null>(null);
   const [searchLocation, setSearchLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState<string | null>(null);
+  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [reservationTotal, setReservationTotal] = useState<number>(0);
@@ -178,13 +178,17 @@ export default function MapScreen() {
   const theme = useColorScheme() ?? 'light';
 
   const appliedSpots = filteredSpots.filter((s) => {
-    if (!selectedFilter) return true;
-    if (selectedFilter === 'under10') return (s.pricePerHour ?? 0) < 10;
-    if (selectedFilter === 'available') return true; // demo: all available
-    if (selectedFilter === 'driveway') return s.title.toLowerCase().includes('driveway');
-    if (selectedFilter === 'garage') return s.title.toLowerCase().includes('garage');
-    if (selectedFilter === 'ev') return false; // demo has no EV data
-    return true;
+    if (selectedFilters.length === 0) return true;
+    
+    // Apply all filters - spot must match ALL selected filters (AND logic)
+    return selectedFilters.every((filterId) => {
+      if (filterId === 'under10') return (s.pricePerHour ?? 0) < 10;
+      if (filterId === 'available') return true; // demo: all available
+      if (filterId === 'driveway') return s.title.toLowerCase().includes('driveway');
+      if (filterId === 'garage') return s.title.toLowerCase().includes('garage');
+      if (filterId === 'ev') return false; // demo has no EV data
+      return true;
+    });
   });
 
   return (
@@ -296,9 +300,9 @@ export default function MapScreen() {
             activeOpacity={0.8}
           >
             <Text style={styles.filterButtonText}>⚡</Text>
-            {selectedFilter && (
+            {selectedFilters.length > 0 && (
               <View style={styles.filterBadge}>
-                <View style={styles.filterBadgeDot} />
+                <Text style={styles.filterBadgeText}>{selectedFilters.length}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -316,44 +320,49 @@ export default function MapScreen() {
             </View>
             
             <View style={styles.filterOptions}>
-              {FILTER_OPTIONS.map((filter) => (
-                <TouchableOpacity
-                  key={filter.id}
-                  style={[
-                    styles.filterOption,
-                    selectedFilter === filter.id && styles.filterOptionActive,
-                  ]}
-                  onPress={() => {
-                    setSelectedFilter(selectedFilter === filter.id ? null : filter.id);
-                    setFilterMenuExpanded(false);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text
+              {FILTER_OPTIONS.map((filter) => {
+                const isSelected = selectedFilters.includes(filter.id);
+                return (
+                  <TouchableOpacity
+                    key={filter.id}
                     style={[
-                      styles.filterOptionText,
-                      selectedFilter === filter.id && styles.filterOptionTextActive,
+                      styles.filterOption,
+                      isSelected && styles.filterOptionActive,
                     ]}
+                    onPress={() => {
+                      if (isSelected) {
+                        setSelectedFilters(selectedFilters.filter(f => f !== filter.id));
+                      } else {
+                        setSelectedFilters([...selectedFilters, filter.id]);
+                      }
+                    }}
+                    activeOpacity={0.7}
                   >
-                    {filter.label}
-                  </Text>
-                  {selectedFilter === filter.id && (
-                    <Text style={styles.filterCheckmark}>✓</Text>
-                  )}
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.filterOptionText,
+                        isSelected && styles.filterOptionTextActive,
+                      ]}
+                    >
+                      {filter.label}
+                    </Text>
+                    {isSelected && (
+                      <Text style={styles.filterCheckmark}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            {selectedFilter && (
+            {selectedFilters.length > 0 && (
               <TouchableOpacity
                 style={styles.clearFilterButton}
                 onPress={() => {
-                  setSelectedFilter(null);
-                  setFilterMenuExpanded(false);
+                  setSelectedFilters([]);
                 }}
                 activeOpacity={0.8}
               >
-                <Text style={styles.clearFilterText}>Clear</Text>
+                <Text style={styles.clearFilterText}>Clear All ({selectedFilters.length})</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -628,16 +637,23 @@ const styles = StyleSheet.create({
   },
   filterBadge: {
     position: 'absolute',
-    top: -2,
-    right: -2,
-  },
-  filterBadgeDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    top: -4,
+    right: -4,
     backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 2,
     borderColor: COLORS.background,
+    paddingHorizontal: 4,
+  },
+  filterBadgeText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 14,
   },
   filterPanel: {
     backgroundColor: COLORS.card,
