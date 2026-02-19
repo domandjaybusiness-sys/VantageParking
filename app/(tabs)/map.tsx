@@ -4,6 +4,35 @@ import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Animated, FlatList, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Design tokens for consistent UI
+const SPACING = {
+  xs: 8,
+  sm: 12,
+  md: 16,
+  lg: 24,
+  xl: 32,
+};
+
+const RADIUS = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
+};
+
+const COLORS = {
+  background: '#0f172a',
+  card: '#1e293b',
+  cardLight: '#334155',
+  primary: '#10b981',
+  text: '#ffffff',
+  textSecondary: '#cbd5e1',
+  textMuted: '#94a3b8',
+  border: '#334155',
+  overlay: 'rgba(0, 0, 0, 0.5)',
+};
 
 // Simple function to calculate distance between two points
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -24,7 +53,16 @@ const SEARCH_SUGGESTIONS = [
   { title: 'Valencia St, San Francisco', lat: 37.76, lng: -122.41 },
 ];
 
+const FILTER_OPTIONS = [
+  { id: 'available', label: 'Available Now' },
+  { id: 'under10', label: 'Under $10' },
+  { id: 'driveway', label: 'Driveway' },
+  { id: 'garage', label: 'Garage' },
+  { id: 'ev', label: 'EV Charging' },
+];
+
 export default function MapScreen() {
+  const insets = useSafeAreaInsets();
   const [filteredSpots, setFilteredSpots] = useState<Listing[]>(() => (getListings() as Listing[]).filter(s => s.latitude != null && s.longitude != null));
   const [selectedSpot, setSelectedSpot] = useState<Listing | null>(null);
   const [slideAnim] = useState(new Animated.Value(300));
@@ -39,6 +77,7 @@ export default function MapScreen() {
   const [reservationTotal, setReservationTotal] = useState<number>(0);
   const [reservationStart, setReservationStart] = useState<Date | null>(null);
   const [reservationEnd, setReservationEnd] = useState<Date | null>(null);
+  const [filterMenuExpanded, setFilterMenuExpanded] = useState(false);
 
   const params = useLocalSearchParams();
 
@@ -115,16 +154,6 @@ export default function MapScreen() {
     setPaymentModalVisible(true);
   };
 
-  const handleConfirmPayment = () => {
-    alert('Payment confirmed — thank you!');
-    setPaymentModalVisible(false);
-    handleCardClose();
-  };
-
-  const handlePaymentBack = () => {
-    setPaymentModalVisible(false);
-  };
-
   const handleRegionChange = (region: any) => {
     const zoom = Math.log2(360 / region.latitudeDelta);
     setZoomLevel(Math.max(1, Math.min(zoom / 5, 3)));
@@ -146,17 +175,15 @@ export default function MapScreen() {
     }
   };
 
-  const markerSize = 28 + zoomLevel * 6;
-
   const theme = useColorScheme() ?? 'light';
 
   const appliedSpots = filteredSpots.filter((s) => {
     if (!selectedFilter) return true;
-    if (selectedFilter === 'Under $10') return (s.pricePerHour ?? 0) < 10;
-    if (selectedFilter === 'Available now') return true; // demo: all available
-    if (selectedFilter === 'Driveway') return s.title.toLowerCase().includes('driveway');
-    if (selectedFilter === 'Garage') return s.title.toLowerCase().includes('garage');
-    if (selectedFilter === 'EV') return false; // demo has no EV data
+    if (selectedFilter === 'under10') return (s.pricePerHour ?? 0) < 10;
+    if (selectedFilter === 'available') return true; // demo: all available
+    if (selectedFilter === 'driveway') return s.title.toLowerCase().includes('driveway');
+    if (selectedFilter === 'garage') return s.title.toLowerCase().includes('garage');
+    if (selectedFilter === 'ev') return false; // demo has no EV data
     return true;
   });
 
@@ -196,8 +223,9 @@ export default function MapScreen() {
 
       {/* Search Bar at Top */}
       <TouchableOpacity 
-        style={styles.searchBarContainer}
+        style={[styles.searchBarContainer, { top: insets.top + SPACING.md }]}
         onPress={() => setSearchActive(true)}
+        activeOpacity={0.8}
       >
         <Text style={styles.searchBarText}>🔍 Find parking near…</Text>
       </TouchableOpacity>
@@ -205,11 +233,12 @@ export default function MapScreen() {
       {/* Search Modal */}
       <Modal visible={searchActive} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { marginTop: insets.top + 40 }]}>
+            <Text style={styles.modalTitle}>Search Location</Text>
             <TextInput
               style={styles.searchInput}
               placeholder="Enter destination address"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={COLORS.textMuted}
               value={searchText}
               onChangeText={setSearchText}
               autoFocus
@@ -221,6 +250,7 @@ export default function MapScreen() {
                   key={suggestion.title}
                   style={styles.suggestionItem}
                   onPress={() => handleSearch(suggestion)}
+                  activeOpacity={0.7}
                 >
                   <Text style={styles.suggestionText}>{suggestion.title}</Text>
                 </TouchableOpacity>
@@ -230,6 +260,7 @@ export default function MapScreen() {
             <TouchableOpacity
               style={styles.modalButton}
               onPress={() => setSearchActive(false)}
+              activeOpacity={0.8}
             >
               <Text style={styles.modalButtonText}>Cancel</Text>
             </TouchableOpacity>
@@ -237,57 +268,132 @@ export default function MapScreen() {
         </View>
       </Modal>
 
-      {/* Filters + Map/List toggle */}
-      <View style={styles.controlsContainer} pointerEvents="box-none">
-        <View style={styles.filtersRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-            {['Available now', 'Under $10', 'Driveway', 'Garage', 'EV'].map((filter) => (
-              <TouchableOpacity
-                key={filter}
-                style={[
-                  styles.filterChip,
-                  selectedFilter === filter && styles.filterChipActive,
-                ]}
-                onPress={() => setSelectedFilter(selectedFilter === filter ? null : filter)}
-              >
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    selectedFilter === filter && styles.filterChipTextActive,
-                  ]}
-                >
-                  {filter}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          <View style={styles.viewToggle}>
-            <TouchableOpacity onPress={() => setViewMode('map')} style={[styles.toggleButton, viewMode === 'map' && styles.toggleActive]}>
-              <Text style={[styles.toggleText, viewMode === 'map' && styles.toggleTextActive]}>Map</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setViewMode('list')} style={[styles.toggleButton, viewMode === 'list' && styles.toggleActive]}>
-              <Text style={[styles.toggleText, viewMode === 'list' && styles.toggleTextActive]}>List</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+      {/* Map/List View Toggle - Top Right */}
+      <View style={[styles.viewToggleContainer, { top: insets.top + SPACING.md }]}>
+        <TouchableOpacity 
+          onPress={() => setViewMode('map')} 
+          style={[styles.toggleButton, viewMode === 'map' && styles.toggleActive]}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.toggleText, viewMode === 'map' && styles.toggleTextActive]}>Map</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          onPress={() => setViewMode('list')} 
+          style={[styles.toggleButton, viewMode === 'list' && styles.toggleActive]}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.toggleText, viewMode === 'list' && styles.toggleTextActive]}>List</Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Floating Filter Menu - Bottom Right */}
+      <View style={[styles.floatingFilterContainer, { bottom: insets.bottom + SPACING.lg }]}>
+        {!filterMenuExpanded ? (
+          // Collapsed state: Floating button
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => setFilterMenuExpanded(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.filterButtonText}>🔧 Filter</Text>
+            {selectedFilter && (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>1</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        ) : (
+          // Expanded state: Filter panel
+          <View style={styles.filterPanel}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.filterTitle}>Filters</Text>
+              <TouchableOpacity 
+                onPress={() => setFilterMenuExpanded(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={styles.filterCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView 
+              style={styles.filterOptions}
+              showsVerticalScrollIndicator={false}
+            >
+              {FILTER_OPTIONS.map((filter) => (
+                <TouchableOpacity
+                  key={filter.id}
+                  style={[
+                    styles.filterOption,
+                    selectedFilter === filter.id && styles.filterOptionActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedFilter(selectedFilter === filter.id ? null : filter.id);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.filterOptionText,
+                      selectedFilter === filter.id && styles.filterOptionTextActive,
+                    ]}
+                  >
+                    {filter.label}
+                  </Text>
+                  {selectedFilter === filter.id && (
+                    <Text style={styles.filterCheckmark}>✓</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {selectedFilter && (
+              <TouchableOpacity
+                style={styles.clearFilterButton}
+                onPress={() => setSelectedFilter(null)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.clearFilterText}>Clear All</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Tap outside to close filter menu */}
+      {filterMenuExpanded && (
+        <TouchableOpacity
+          style={styles.filterBackdrop}
+          onPress={() => setFilterMenuExpanded(false)}
+          activeOpacity={1}
+        />
+      )}
 
       {/* List view overlay */}
       {viewMode === 'list' && (
-        <View style={styles.listOverlay}>
+        <View style={[styles.listOverlay, { 
+          top: insets.top + 80,
+          bottom: insets.bottom + SPACING.md 
+        }]}>
           <FlatList
             data={appliedSpots.sort((a,b) => (a.pricePerHour ?? 0) - (b.pricePerHour ?? 0))}
             keyExtractor={(i) => i.id.toString()}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.listCard} onPress={() => { setSelectedSpot(item); setViewMode('map'); }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardAddress}>{item.address}</Text>
+              <TouchableOpacity 
+                style={styles.listCard} 
+                onPress={() => { 
+                  setSelectedSpot(item); 
+                  setViewMode('map'); 
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.listCardContent}>
+                  <Text style={styles.listCardTitle} numberOfLines={1}>{item.title}</Text>
+                  <Text style={styles.listCardAddress} numberOfLines={1}>{item.address}</Text>
                 </View>
-                <Text style={styles.cardPriceSmall}>${((item.pricePerHour ?? 0)).toFixed(2)}/hr</Text>
+                <Text style={styles.listCardPrice}>${((item.pricePerHour ?? 0)).toFixed(2)}/hr</Text>
               </TouchableOpacity>
             )}
+            contentContainerStyle={{ paddingBottom: SPACING.lg }}
           />
         </View>
       )}
@@ -299,19 +405,22 @@ export default function MapScreen() {
             styles.card,
             {
               transform: [{ translateY: slideAnim }],
+              paddingBottom: insets.bottom + SPACING.md,
             },
           ]}
         >
+          <View style={styles.cardHandle} />
           <View style={styles.cardContent}>
-            <Text style={styles.cardTitle}>{selectedSpot.title}</Text>
-            <Text style={styles.cardAddress}>{selectedSpot.address}</Text>
+            <Text style={styles.cardTitle} numberOfLines={2}>{selectedSpot.title}</Text>
+            <Text style={styles.cardAddress} numberOfLines={2}>{selectedSpot.address}</Text>
             <Text style={styles.cardPrice}>${((selectedSpot.pricePerHour ?? 0)).toFixed(2)}/hr</Text>
 
             <TouchableOpacity
-              style={styles.closeButton}
+              style={styles.reserveButton}
               onPress={() => handleReserve(selectedSpot)}
+              activeOpacity={0.8}
             >
-              <Text style={styles.closeButtonText}>Reserve</Text>
+              <Text style={styles.reserveButtonText}>Reserve Spot</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -319,50 +428,53 @@ export default function MapScreen() {
 
       {/* Checkout bottom sheet */}
       <Modal visible={paymentModalVisible} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { justifyContent: 'flex-end', paddingTop: 0 }]}> 
-          <View style={[styles.modalContent, { borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' }]}> 
-            <Text style={{ fontSize: 18, fontWeight: '700', color: 'white', marginBottom: 12 }}>Review & Pay</Text>
+        <View style={styles.paymentModalOverlay}> 
+          <View style={[styles.paymentModalContent, { paddingBottom: insets.bottom + SPACING.md }]}> 
+            <Text style={styles.paymentTitle}>Review & Pay</Text>
 
-            <Text style={{ color: '#cbd5e1', marginBottom: 6 }}>{selectedSpot?.title}</Text>
-            <Text style={{ color: '#94a3b8', marginBottom: 12 }}>{selectedSpot?.address}</Text>
+            <Text style={styles.paymentSpotTitle} numberOfLines={1}>{selectedSpot?.title}</Text>
+            <Text style={styles.paymentSpotAddress} numberOfLines={1}>{selectedSpot?.address}</Text>
 
-            <Text style={{ color: '#cbd5e1', marginBottom: 6 }}>
+            <Text style={styles.paymentTimeText}>
               Time: {reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
               {'–'}{reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
             </Text>
 
             {/* Cost breakdown */}
-            <View style={{ borderTopWidth: 1, borderTopColor: '#111827', paddingTop: 12, marginTop: 8 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                <Text style={{ color: '#cbd5e1' }}>Parking</Text>
-                <Text style={{ color: '#cbd5e1' }}>${reservationTotal.toFixed(2)}</Text>
+            <View style={styles.costBreakdown}>
+              <View style={styles.costRow}>
+                <Text style={styles.costLabel}>Parking</Text>
+                <Text style={styles.costValue}>${reservationTotal.toFixed(2)}</Text>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                <Text style={{ color: '#cbd5e1' }}>Service fee</Text>
-                <Text style={{ color: '#cbd5e1' }}>${(reservationTotal * 0.12).toFixed(2)}</Text>
+              <View style={styles.costRow}>
+                <Text style={styles.costLabel}>Service fee</Text>
+                <Text style={styles.costValue}>${(reservationTotal * 0.12).toFixed(2)}</Text>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-                <Text style={{ color: 'white', fontWeight: '700' }}>Total</Text>
-                <Text style={{ color: '#10b981', fontWeight: '800' }}>${(reservationTotal * 1.12).toFixed(2)}</Text>
+              <View style={styles.costRowTotal}>
+                <Text style={styles.costLabelTotal}>Total</Text>
+                <Text style={styles.costValueTotal}>${(reservationTotal * 1.12).toFixed(2)}</Text>
               </View>
             </View>
 
-            <View style={{ marginTop: 18 }}>
+            <View style={styles.paymentActions}>
               <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: '#10b981' }]}
+                style={styles.paymentButton}
                 onPress={() => {
-                  // simulate payment success
-                  // show confirmation inside modal
                   alert('Payment successful');
                   setPaymentModalVisible(false);
                   handleCardClose();
                 }}
+                activeOpacity={0.8}
               >
-                <Text style={styles.modalButtonText}>Pay ${(reservationTotal * 1.12).toFixed(2)}</Text>
+                <Text style={styles.paymentButtonText}>Pay ${(reservationTotal * 1.12).toFixed(2)}</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={{ marginTop: 12 }} onPress={handlePaymentBack}>
-                <Text style={{ color: '#94a3b8', textAlign: 'center' }}>Cancel</Text>
+              <TouchableOpacity 
+                style={styles.paymentCancelButton} 
+                onPress={() => setPaymentModalVisible(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.paymentCancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -375,57 +487,65 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: COLORS.background,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
   },
+
+  // Search Bar
   searchBarContainer: {
     position: 'absolute',
-    top: 100,
-    left: 16,
-    right: 16,
-    backgroundColor: '#0f172a',
-    borderRadius: 24,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    left: SPACING.md,
+    right: SPACING.md,
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.xl,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 5,
     zIndex: 10,
   },
   searchBarText: {
     fontSize: 16,
-    color: '#cbd5e1',
+    color: COLORS.text,
   },
+
+  // Search Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'flex-start',
-    paddingTop: 60,
+    paddingHorizontal: SPACING.md,
   },
   modalContent: {
-    backgroundColor: '#1e293b',
-    marginHorizontal: 16,
-    borderRadius: 12,
-    padding: 16,
-    maxHeight: '70%',
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    maxHeight: '75%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: 'white',
+    marginBottom: SPACING.md,
   },
   searchInput: {
-    backgroundColor: '#0f172a',
+    backgroundColor: COLORS.background,
     color: 'white',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
+    padding: SPACING.sm,
+    borderRadius: RADIUS.sm,
+    marginBottom: SPACING.md,
     fontSize: 16,
   },
   suggestionsList: {
     maxHeight: 300,
   },
   suggestionItem: {
-    paddingVertical: 12,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
     borderBottomColor: '#334155',
   },
@@ -435,9 +555,9 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     backgroundColor: '#475569',
-    paddingVertical: 12,
-    marginTop: 12,
-    borderRadius: 8,
+    paddingVertical: SPACING.sm,
+    marginTop: SPACING.sm,
+    borderRadius: RADIUS.sm,
   },
   modalButtonText: {
     color: 'white',
@@ -445,113 +565,248 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  filterContainer: {
+
+  // Map/List View Toggle (Top Right)
+  viewToggleContainer: {
     position: 'absolute',
-    top: 160,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 16,
-    zIndex: 9,
-  },
-  filterScroll: {
+    right: SPACING.md,
     flexDirection: 'row',
-  },
-  filterChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginRight: 8,
-  },
-  filterChipActive: {
-    backgroundColor: '#10b981',
-  },
-  filterChipText: {
-    color: '#cbd5e1',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  filterChipTextActive: {
-    color: 'white',
-  },
-  controlsContainer: {
-    position: 'absolute',
-    top: 160,
-    left: 16,
-    right: 16,
-    zIndex: 11,
-  },
-  filtersRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  viewToggle: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 12,
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.md,
     padding: 4,
-    marginLeft: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 10,
   },
   toggleButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: RADIUS.sm,
+    minWidth: 50,
+    alignItems: 'center',
   },
   toggleActive: {
-    backgroundColor: '#0b1220',
+    backgroundColor: COLORS.background,
   },
-  toggleText: { color: '#cbd5e1' },
-  toggleTextActive: { color: '#10b981', fontWeight: '700' },
-  markerPin: {
+  toggleText: {
+    color: COLORS.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  toggleTextActive: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+
+  // Floating Filter Menu (Bottom Right)
+  floatingFilterContainer: {
+    position: 'absolute',
+    right: SPACING.md,
+    zIndex: 15,
+  },
+  filterButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    minHeight: 48,
+  },
+  filterButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  filterBadge: {
+    marginLeft: SPACING.xs,
+    backgroundColor: 'white',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  filterBadgeText: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  filterPanel: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+    minWidth: 200,
+    maxHeight: 400,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  filterTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: 'white',
+  },
+  filterCloseText: {
+    fontSize: 24,
+    color: COLORS.textMuted,
+    fontWeight: '300',
+  },
+  filterOptions: {
+    maxHeight: 300,
+  },
+  filterOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: RADIUS.sm,
+    marginBottom: 4,
+    minHeight: 44,
+  },
+  filterOptionActive: {
+    backgroundColor: COLORS.primary + '20',
+  },
+  filterOptionText: {
+    fontSize: 15,
+    color: COLORS.text,
+  },
+  filterOptionTextActive: {
+    color: COLORS.primary,
+    fontWeight: '600',
+  },
+  filterCheckmark: {
+    fontSize: 16,
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+  clearFilterButton: {
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+  },
+  clearFilterText: {
+    color: COLORS.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  filterBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'transparent',
+    zIndex: 14,
+  },
+
+  // Map Markers
   pricePill: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
-    backgroundColor: '#10b981',
-    borderWidth: 0,
+    backgroundColor: COLORS.primary,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   pricePillSelected: {
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: 'white',
-    transform: [{ scale: 1.05 }],
+    transform: [{ scale: 1.1 }],
   },
-  pillText: { color: 'white', fontWeight: '700' },
+  pillText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+
+  // List View Overlay
+  listOverlay: {
+    position: 'absolute',
+    left: SPACING.md,
+    right: SPACING.md,
+    backgroundColor: 'transparent',
+    zIndex: 12,
+  },
+  listCard: {
+    backgroundColor: COLORS.card,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  listCardContent: {
+    flex: 1,
+    marginRight: SPACING.sm,
+  },
+  listCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+    marginBottom: 4,
+  },
+  listCardAddress: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+  },
+  listCardPrice: {
+    fontSize: 16,
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+
+  // Bottom Sheet Card
   card: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#1e293b',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 20,
+    backgroundColor: COLORS.card,
+    borderTopLeftRadius: RADIUS.lg,
+    borderTopRightRadius: RADIUS.lg,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
     elevation: 10,
   },
-  listOverlay: {
-    position: 'absolute',
-    top: 220,
-    left: 16,
-    right: 16,
-    bottom: 16,
-    zIndex: 12,
+  cardHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#475569',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: SPACING.md,
   },
-  listCard: {
-    backgroundColor: '#0f172a',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cardPriceSmall: { color: '#10b981', fontWeight: '700', marginLeft: 12 },
   cardContent: {
     alignItems: 'center',
   },
@@ -560,30 +815,131 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: 'white',
     marginBottom: 4,
+    textAlign: 'center',
   },
   cardAddress: {
     fontSize: 14,
-    color: '#94a3b8',
-    marginBottom: 8,
+    color: COLORS.textMuted,
+    marginBottom: SPACING.sm,
+    textAlign: 'center',
   },
   cardPrice: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#10b981',
-    marginBottom: 16,
+    fontSize: 28,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginBottom: SPACING.md,
   },
-  closeButton: {
-    backgroundColor: '#10b981',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
+  reserveButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIUS.md,
     width: '100%',
     alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
   },
-  closeButtonText: {
+  reserveButtonText: {
     color: 'white',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+
+  // Payment Modal
+  paymentModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  paymentModalContent: {
+    backgroundColor: COLORS.card,
+    borderTopLeftRadius: RADIUS.lg,
+    borderTopRightRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    maxHeight: '75%',
+  },
+  paymentTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: 'white',
+    marginBottom: SPACING.md,
+  },
+  paymentSpotTitle: {
+    color: COLORS.text,
     fontSize: 16,
-    fontWeight: '600',
+    marginBottom: 4,
+  },
+  paymentSpotAddress: {
+    color: COLORS.textMuted,
+    fontSize: 14,
+    marginBottom: SPACING.sm,
+  },
+  paymentTimeText: {
+    color: COLORS.text,
+    fontSize: 15,
+    marginBottom: SPACING.sm,
+  },
+  costBreakdown: {
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
+    paddingTop: SPACING.md,
+    marginTop: SPACING.sm,
+  },
+  costRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.xs,
+  },
+  costLabel: {
+    color: COLORS.text,
+    fontSize: 15,
+  },
+  costValue: {
+    color: COLORS.text,
+    fontSize: 15,
+  },
+  costRowTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: SPACING.sm,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
+  },
+  costLabelTotal: {
+    color: 'white',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  costValueTotal: {
+    color: COLORS.primary,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  paymentActions: {
+    marginTop: SPACING.lg,
+  },
+  paymentButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  paymentButtonText: {
+    color: 'white',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  paymentCancelButton: {
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    alignItems: 'center',
+  },
+  paymentCancelText: {
+    color: COLORS.textMuted,
+    fontSize: 16,
   },
 });
 

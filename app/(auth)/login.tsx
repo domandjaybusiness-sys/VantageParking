@@ -1,6 +1,6 @@
 import { setAuth } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import * as AuthSession from 'expo-auth-session';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
@@ -34,52 +34,107 @@ export default function LoginScreen() {
     try {
       setLoading(true);
       
-      // Google OAuth Configuration
-      // For production, replace with your actual Google Client ID from Google Cloud Console
-      const clientId = Platform.select({
-        ios: 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com',
-        android: 'YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com',
-        web: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com',
-      });
-
-      const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'vantageparking',
-      });
-
-      console.log('Google OAuth redirect URI:', redirectUri);
-
-      // For demo/development: show setup instructions
-      // In production with real client IDs, this will open the actual Google sign-in
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=openid%20profile%20email`;
+      console.log('🔵 Starting Google Sign-In...');
       
-      Alert.alert(
-        'Google Sign-In Ready',
-        'Google OAuth is configured and ready to use!\n\nTo enable:\n1. Get OAuth Client ID from Google Cloud Console\n2. Update clientId in login.tsx\n3. Configure redirect URIs\n\nFor now, continuing with demo auth...',
-        [
-          {
-            text: 'OK',
-            onPress: async () => {
-              await setAuth('google');
-              setLoading(false);
-              router.replace('/(tabs)');
-            },
+      // Use Supabase Auth with Google provider
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'parkdemo://auth/callback',
+          skipBrowserRedirect: false,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
           },
+        },
+      });
+
+      if (error) {
+        console.error('Google OAuth error:', error);
+        
+        // Show helpful error message
+        Alert.alert(
+          'Google Sign-In Setup Required',
+          'To use Google Sign-In, you need to:\n\n' +
+          '1. Go to Google Cloud Console\n' +
+          '2. Configure OAuth Consent Screen\n' +
+          '3. Set app to "Testing" mode\n' +
+          '4. Add your email as a test user\n\n' +
+          'Or use "Continue as Guest" for now.\n\n' +
+          `Error: ${error.message}`,
+          [
+            { text: 'Use Guest Mode', onPress: handleGuest },
+            { text: 'Cancel', style: 'cancel', onPress: () => setLoading(false) },
+          ]
+        );
+        return;
+      }
+
+      if (data?.url) {
+        console.log('🔵 Opening OAuth URL:', data.url);
+        
+        // Open the OAuth URL in browser
+        const result = await WebBrowser.openAuthSessionAsync(
+          data.url,
+          'parkdemo://auth/callback'
+        );
+
+        console.log('🔵 OAuth result:', result);
+
+        if (result.type === 'success') {
+          // Extract the session from the URL
+          const url = result.url;
+          
+          // Wait a moment for Supabase to process the session
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Get the current session
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          
+          if (sessionError) {
+            console.error('Session error:', sessionError);
+            Alert.alert('Error', 'Failed to establish session');
+            setLoading(false);
+            return;
+          }
+
+          if (sessionData?.session) {
+            const user = sessionData.session.user;
+            console.log('✅ User authenticated:', user.email);
+            
+            // Save auth state
+            await setAuth('google', {
+              userId: user.id,
+              email: user.email,
+              name: user.user_metadata?.name || user.user_metadata?.full_name || user.email,
+            });
+            
+            setLoading(false);
+            router.replace('/(tabs)');
+          } else {
+            console.log('No session found');
+            Alert.alert('Error', 'No session established');
+            setLoading(false);
+          }
+        } else if (result.type === 'cancel') {
+          console.log('User canceled OAuth');
+          setLoading(false);
+        } else {
+          console.log('OAuth failed or dismissed');
+          setLoading(false);
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('Google sign-in error:', error);
+      Alert.alert(
+        'Sign-In Error',
+        error.message || 'Failed to sign in with Google. Try "Continue as Guest" instead.',
+        [
+          { text: 'Use Guest Mode', onPress: handleGuest },
+          { text: 'OK', style: 'cancel', onPress: () => setLoading(false) },
         ]
       );
-      
-      // Uncomment when you have real client IDs:
-      // const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
-      // if (result.type === 'success') {
-      //   // Parse the token from result.url
-      //   // Send to your backend to create session
-      //   await setAuth('google');
-      //   router.replace('/(tabs)');
-      // }
-      
-    } catch (error) {
-      console.error('Google sign-in error:', error);
-      Alert.alert('Error', 'Failed to sign in with Google');
-      setLoading(false);
     }
   };
 
@@ -90,18 +145,10 @@ export default function LoginScreen() {
       if (!appleAvailable) {
         Alert.alert(
           'Apple Sign-In Unavailable',
-          'Apple Sign-In is only available on iOS 13+ devices. For now, signing you in as demo user...',
-          [
-            {
-              text: 'OK',
-              onPress: async () => {
-                await setAuth('apple');
-                setLoading(false);
-                router.replace('/(tabs)');
-              },
-            },
-          ]
+          'Apple Sign-In is only available on iOS 13+ devices.',
+          [{ text: 'OK' }]
         );
+        setLoading(false);
         return;
       }
 
@@ -112,18 +159,37 @@ export default function LoginScreen() {
         ],
       });
 
-      // Signed in successfully
-      console.log('Apple credential:', credential);
+      console.log('🍎 Apple credential received:', credential);
       
-      // In production, send credential.identityToken to your backend
-      // to verify and create a session
+      // Sign in with Supabase using Apple identity token
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken!,
+      });
+
+      if (error) {
+        console.error('Apple sign-in error:', error);
+        Alert.alert('Error', error.message);
+        setLoading(false);
+        return;
+      }
+
+      if (data?.user) {
+        console.log('✅ Apple user authenticated:', data.user.email);
+        
+        await setAuth('apple', {
+          userId: data.user.id,
+          email: data.user.email,
+          name: credential.fullName?.givenName || data.user.email,
+        });
+        
+        setLoading(false);
+        router.replace('/(tabs)');
+      }
       
-      await setAuth('apple');
-      setLoading(false);
-      router.replace('/(tabs)');
     } catch (error: any) {
       if (error.code === 'ERR_CANCELED') {
-        // User canceled the sign-in
+        console.log('User canceled Apple sign-in');
         setLoading(false);
       } else {
         console.error('Apple sign-in error:', error);

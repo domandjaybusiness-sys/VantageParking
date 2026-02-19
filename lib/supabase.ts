@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://jtynyaaqrcyhysaxgxbp.supabase.co';
@@ -9,4 +10,15 @@ declare global {
 }
 
 // Ensure a single Supabase client instance (safe for Fast Refresh / HMR)
-export const supabase: SupabaseClient = globalThis.__supabase ?? (globalThis.__supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY));
+export const supabase: SupabaseClient = globalThis.__supabase ?? (globalThis.__supabase = createClient(
+  SUPABASE_URL, 
+  SUPABASE_ANON_KEY,
+  {
+    auth: {
+      storage: AsyncStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  }
+));
