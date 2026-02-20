@@ -96,43 +96,41 @@ export default function AddListingScreen() {
     } = await supabase.auth.getUser();
     const hostId = user?.id ?? null;
 
-    async function tryGeocodeVariants(address: string) {
-      const variants: string[] = [];
-      variants.push(address);
-      const noUnit = address.replace(/#?\s?Apt.*|Unit.*|Suite.*/i, '').trim();
-      if (noUnit !== address) variants.push(noUnit);
-      const components = [street, city, stateField, zip].filter(Boolean).join(' ').trim();
-      if (components && !variants.includes(components)) variants.push(components);
-      const noCommas = address.replace(/,/g, ' ').trim();
-      if (!variants.includes(noCommas)) variants.push(noCommas);
-      const withCountry = `${address} USA`;
-      if (!variants.includes(withCountry)) variants.push(withCountry);
-
-      // try reliable endpoints (geocode.maps.co is a permissive Nominatim mirror)
-      const endpoints = [
-        (q: string) => `https://geocode.maps.co/search?q=${encodeURIComponent(q)}&limit=1`,
-        (q: string) => `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`,
+    const insertSpotWithFallback = async (basePayload: {
+      title: string;
+      address: string;
+      lat: number | null;
+      lng: number | null;
+      price_per_hour: number;
+      created_at: string;
+    }) => {
+      const attempts = [
+        { ...basePayload, host_id: hostId },
+        { ...basePayload, hostId },
+        { ...basePayload },
       ];
 
-      for (const q of variants) {
-        for (const ep of endpoints) {
-          try {
-            const url = ep(q);
-            const resp = await fetch(url, { headers: { Accept: 'application/json' } });
-            const data = await resp.json();
-            const first = Array.isArray(data) ? data[0] : data?.[0];
-            if (first) {
-              const lat = parseFloat(first.lat ?? first.latitude ?? first.lat);
-              const lon = parseFloat(first.lon ?? first.longitude ?? first.lon);
-              if (!Number.isNaN(lat) && !Number.isNaN(lon)) return { lat, lon, usedQuery: q };
-            }
-          } catch {
-            // ignore and try next
-          }
+      let lastError: any = null;
+
+      for (const payload of attempts) {
+        const { error } = await supabase.from('spots').insert(payload);
+        if (!error) return null;
+
+        lastError = error;
+        const message = String(error.message || '').toLowerCase();
+        const isHostColumnIssue =
+          message.includes('host_id') ||
+          message.includes('hostid') ||
+          message.includes('schema cache') ||
+          message.includes('column');
+
+        if (!isHostColumnIssue) {
+          break;
         }
       }
-      return null;
-    }
+
+      return lastError;
+    };
 
     const geo = await tryGeocodeVariants(fullAddress);
     if (!geo) {
@@ -150,8 +148,7 @@ export default function AddListingScreen() {
                   address: fullAddress,
                 });
 
-                const { error } = await supabase.from('spots').insert({
-                  host_id: hostId,
+                const error = await insertSpotWithFallback({
                   title: title || 'New Spot',
                   address: fullAddress,
                   lat: null,
@@ -181,8 +178,7 @@ export default function AddListingScreen() {
       address: fullAddress,
     });
 
-    const { error } = await supabase.from('spots').insert({
-      host_id: hostId,
+    const error = await insertSpotWithFallback({
       title: title || 'New Spot',
       address: fullAddress,
       lat,
@@ -206,20 +202,37 @@ export default function AddListingScreen() {
     variants.push(address);
     const noUnit = address.replace(/#?\s?Apt.*|Unit.*|Suite.*/i, '').trim();
     if (noUnit !== address) variants.push(noUnit);
-    variants.push(address.replace(/,/g, ' '));
-    variants.push(`${address} USA`);
+
+    const components = [street, city, stateField, zip].filter(Boolean).join(' ').trim();
+    if (components && !variants.includes(components)) variants.push(components);
+
+    const noCommas = address.replace(/,/g, ' ').trim();
+    if (!variants.includes(noCommas)) variants.push(noCommas);
+
+    const withCountry = `${address} USA`;
+    if (!variants.includes(withCountry)) variants.push(withCountry);
+
+    const endpoints = [
+      (q: string) => `https://geocode.maps.co/search?q=${encodeURIComponent(q)}&limit=1`,
+      (q: string) => `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`,
+    ];
 
     for (const q of variants) {
-      try {
-        const resp = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`
-        );
-        const data = await resp.json();
-        if (data && data[0]) {
-          return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), usedQuery: q };
+      for (const endpoint of endpoints) {
+        try {
+          const resp = await fetch(endpoint(q), { headers: { Accept: 'application/json' } });
+          const data = await resp.json();
+          const first = Array.isArray(data) ? data[0] : data?.[0];
+          if (first) {
+            const lat = parseFloat(first.lat ?? first.latitude);
+            const lon = parseFloat(first.lon ?? first.longitude);
+            if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+              return { lat, lon, usedQuery: q };
+            }
+          }
+        } catch {
+          // try next endpoint/query
         }
-      } catch {
-        // try next
       }
     }
     return null;

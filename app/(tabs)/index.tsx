@@ -29,6 +29,13 @@ export default function HomeScreen() {
   const [todayEarnings, setTodayEarnings] = useState(0);
   const [spotCount, setSpotCount] = useState(0);
   const [topSpots, setTopSpots] = useState<{ id: string; title: string; address: string; price: number }[]>([]);
+  const [activeBookingBanner, setActiveBookingBanner] = useState<{
+    id: string;
+    title: string;
+    address: string;
+    endTime: Date;
+  } | null>(null);
+  const [countdownNowMs, setCountdownNowMs] = useState(Date.now());
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -66,7 +73,39 @@ export default function HomeScreen() {
         setIsHost(false);
         setActiveBookings(0);
         setTodayEarnings(0);
+        setActiveBookingBanner(null);
         return;
+      }
+
+      const { data: activeRows } = await supabase
+        .from('bookings')
+        .select('id, end_time, endTime, address, spot_name, spot_title, spot:spots(title, address)')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .order('end_time', { ascending: true })
+        .limit(1);
+
+      const activeBookingRow = activeRows?.[0];
+      if (activeBookingRow) {
+        const joinedSpot = Array.isArray(activeBookingRow?.spot)
+          ? activeBookingRow.spot[0]
+          : activeBookingRow?.spot;
+        const endRaw = activeBookingRow?.end_time ?? activeBookingRow?.endTime;
+        const endTime = endRaw ? new Date(endRaw) : null;
+        if (endTime && !Number.isNaN(endTime.getTime()) && endTime.getTime() > Date.now()) {
+          const title = joinedSpot?.title ?? activeBookingRow?.spot_name ?? activeBookingRow?.spot_title ?? 'Parking Spot';
+          const address = joinedSpot?.address ?? activeBookingRow?.address ?? 'Address unavailable';
+          setActiveBookingBanner({
+            id: String(activeBookingRow?.id ?? ''),
+            title,
+            address,
+            endTime,
+          });
+        } else {
+          setActiveBookingBanner(null);
+        }
+      } else {
+        setActiveBookingBanner(null);
       }
 
       const { data: hostSpots } = await supabase
@@ -103,7 +142,35 @@ export default function HomeScreen() {
     };
 
     load();
+
+    const bookingsChannel = supabase
+      .channel('home-active-booking')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        load();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(bookingsChannel);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!activeBookingBanner) return;
+    const timer = setInterval(() => setCountdownNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [activeBookingBanner]);
+
+  const formatRemainingTime = (endTime: Date) => {
+    const remainingMs = Math.max(0, endTime.getTime() - countdownNowMs);
+    const totalMinutes = Math.ceil(remainingMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    const hourLabel = `${hours}hr`;
+    const minuteLabel = `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+    return `${hourLabel} ${minuteLabel}`;
+  };
 
   const openCurrentLocation = async () => {
     try {
@@ -143,6 +210,19 @@ export default function HomeScreen() {
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 8 }]}
       showsVerticalScrollIndicator={false}
     >
+      {activeBookingBanner && (
+        <AnimatedListItem index={0} direction="down">
+          <TouchableOpacity
+            style={[styles.activeBookingBanner, { backgroundColor: colors.backgroundCard, borderColor: colors.primary }]}
+            onPress={() => router.push('/reservations')}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.activeBookingBannerText, { color: colors.text }]}>Active booking • {formatRemainingTime(activeBookingBanner.endTime)} left</Text>
+            <Text style={[styles.activeBookingBannerView, { color: colors.primary }]}>View</Text>
+          </TouchableOpacity>
+        </AnimatedListItem>
+      )}
+
       <AnimatedListItem index={0} direction="down">
         <View style={[styles.headerCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
           <View style={styles.brandRow}>
@@ -158,19 +238,26 @@ export default function HomeScreen() {
       </AnimatedListItem>
 
       <AnimatedListItem index={1} direction="down">
+        <TouchableOpacity
+          style={[styles.primaryHomeAction, { backgroundColor: colors.primary }]}
+          onPress={openCurrentLocation}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.primaryHomeActionText}>Find parking near me</Text>
+        </TouchableOpacity>
+      </AnimatedListItem>
+
+      <AnimatedListItem index={2} direction="down">
         <View style={styles.dualActionRow}>
           <TouchableOpacity
             style={[styles.actionCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push('/search');
+              router.push('/browse');
             }}
             activeOpacity={0.85}
           >
-            <View style={styles.buttonLabelRow}>
-              <Text style={styles.smallIcon}>🔎</Text>
-              <Text style={[styles.actionTitle, { color: colors.text }]}>Browse Spots</Text>
-            </View>
+            <Text style={[styles.actionTitle, { color: colors.text }]}>Browse Spots</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -181,10 +268,7 @@ export default function HomeScreen() {
             }}
             activeOpacity={0.85}
           >
-            <View style={styles.buttonLabelRow}>
-              <Text style={styles.smallIcon}>🏠</Text>
-              <Text style={[styles.actionTitle, { color: colors.text }]}>Host Hub</Text>
-            </View>
+            <Text style={[styles.actionTitle, { color: colors.text }]}>Host Hub</Text>
           </TouchableOpacity>
         </View>
       </AnimatedListItem>
@@ -217,53 +301,23 @@ export default function HomeScreen() {
         </AnimatedListItem>
       )}
 
-      <AnimatedListItem index={3} direction="down">
-        <View style={[styles.quickActions, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
-          <View style={styles.quickButtonsRow}>
-            <TouchableOpacity
-              style={[styles.quickBtn, { borderColor: colors.border }]}
-              onPress={openCurrentLocation}
-              activeOpacity={0.8}
-            >
-              <View style={styles.buttonLabelRow}>
-                <Text style={styles.smallIcon}>📍</Text>
-                <Text style={[styles.quickBtnText, { color: colors.text }]}>Current Location</Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.quickBtn, { borderColor: colors.border }]}
-              onPress={() => router.push('/map?openSearch=true')}
-              activeOpacity={0.8}
-            >
-              <View style={styles.buttonLabelRow}>
-                <Text style={styles.smallIcon}>🗺️</Text>
-                <Text style={[styles.quickBtnText, { color: colors.text }]}>Search Map</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </AnimatedListItem>
-
       <View style={styles.topSpotsSection}>
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Best Value Right Now</Text>
-        {topSpots.map((spot, index) => (
-          <AnimatedListItem key={spot.id} index={index + 4} direction="up">
-            <TouchableOpacity
-              style={[styles.spotCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
-              onPress={() => router.push('/browse')}
-              activeOpacity={0.85}
-            >
-              <View style={{ flex: 1 }}>
-                <View style={styles.buttonLabelRow}>
-                  <Text style={styles.smallIcon}>🅿️</Text>
-                  <Text style={[styles.spotTitle, { color: colors.text }]} numberOfLines={1}>{spot.title}</Text>
-                </View>
-                <Text style={[styles.spotAddress, { color: colors.textSecondary }]} numberOfLines={1}>{spot.address}</Text>
-              </View>
-              <Text style={[styles.spotPrice, { color: colors.primary }]}>${spot.price.toFixed(2)}/hr</Text>
-            </TouchableOpacity>
-          </AnimatedListItem>
-        ))}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.topSpotsRow}>
+          {topSpots.map((spot, index) => (
+            <AnimatedListItem key={spot.id} index={index + 4} direction="up">
+              <TouchableOpacity
+                style={[styles.spotCardHorizontal, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+                onPress={() => router.push('/browse')}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.spotTitle, { color: colors.text }]} numberOfLines={1}>{spot.title}</Text>
+                <Text style={[styles.spotAddress, { color: colors.textSecondary }]} numberOfLines={2}>{spot.address}</Text>
+                <Text style={[styles.spotPrice, { color: colors.primary }]}>${spot.price.toFixed(2)}/hr</Text>
+              </TouchableOpacity>
+            </AnimatedListItem>
+          ))}
+        </ScrollView>
       </View>
     </ScrollView>
   );
@@ -272,6 +326,26 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, paddingBottom: 28 },
+  activeBookingBanner: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  activeBookingBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    marginRight: 10,
+  },
+  activeBookingBannerView: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   headerCard: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 18,
@@ -319,6 +393,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginBottom: 12,
+  },
+  primaryHomeAction: {
+    borderRadius: 14,
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  primaryHomeActionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   actionCard: {
     flex: 1,
@@ -398,6 +484,16 @@ const styles = StyleSheet.create({
   },
   topSpotsSection: {
     marginBottom: 8,
+  },
+  topSpotsRow: {
+    gap: 10,
+    paddingBottom: 4,
+  },
+  spotCardHorizontal: {
+    width: 240,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    padding: 14,
   },
   spotCard: {
     borderWidth: StyleSheet.hairlineWidth,

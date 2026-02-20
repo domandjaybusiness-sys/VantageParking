@@ -124,6 +124,29 @@ export default function ReservationsScreen() {
 
   const [loadingCancelId, setLoadingCancelId] = useState<string | null>(null);
 
+  const handleExtendReservation = async (reservation: ReservationItem, minutes: number) => {
+    const nextEnd = new Date(reservation.endTime.getTime() + minutes * 60000);
+    const { error } = await supabase
+      .from('bookings')
+      .update({ end_time: nextEnd.toISOString() })
+      .eq('id', reservation.id);
+
+    if (error) {
+      Alert.alert('Extend failed', error.message || 'Could not extend booking.');
+      return;
+    }
+
+    setReservations((prev) => prev.map((item) => (
+      item.id === reservation.id
+        ? {
+          ...item,
+          endTime: nextEnd,
+          timeLabel: `${item.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${nextEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        }
+        : item
+    )));
+  };
+
   const handleCancelReservation = async (id: string) => {
     Alert.alert('Cancel reservation', 'Are you sure you want to cancel this reservation?', [
       { text: 'No', style: 'cancel' },
@@ -189,6 +212,13 @@ export default function ReservationsScreen() {
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={[styles.mapButton, { borderColor: colors.border, backgroundColor: colors.background }]}
+                onPress={() => handleExtendReservation(reservation, 30)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.mapButtonText, { color: colors.text }]}>Extend +30</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.mapButton, { borderColor: colors.border, backgroundColor: colors.background }]}
                 onPress={() => {
                   if (reservation.latitude != null && reservation.longitude != null) {
                     router.push(`/map?lat=${reservation.latitude}&lng=${reservation.longitude}`);
@@ -198,7 +228,7 @@ export default function ReservationsScreen() {
                 }}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.mapButtonText, { color: colors.text }]}>View on Map</Text>
+                <Text style={[styles.mapButtonText, { color: colors.text }]}>Directions</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.cancelButton, { borderColor: colors.border, backgroundColor: colors.backgroundCard }]}
@@ -282,6 +312,9 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     marginTop: 12,
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
   },
   mapButton: {
     alignSelf: 'flex-start',
@@ -300,7 +333,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    marginLeft: 8,
   },
   cancelButtonText: {
     fontSize: 12,

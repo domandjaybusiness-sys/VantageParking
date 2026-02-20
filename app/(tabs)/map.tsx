@@ -1,12 +1,18 @@
 import { useTheme } from '@/contexts/ThemeContext';
+import {
+  BookingMode,
+  computeBookingPriceBreakdown,
+  DEFAULT_PARK_NOW_DURATION_MINUTES,
+  getHourlyRateForMode,
+  PARK_NOW_MIN_AVAILABILITY_MINUTES,
+} from '@/lib/booking';
 import { Listing, mapSpotRow } from '@/lib/listings';
-import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
+import { DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, FlatList, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { Portal } from 'react-native-paper';
 import { DatePickerModal } from 'react-native-paper-dates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -46,6 +52,7 @@ const FILTER_OPTIONS = [
 ];
 
 const RADIUS_OPTIONS = [0.5, 1, 3, 5, 10, 25];
+const BOOKING_SNAP_POINTS = [25, 55, 90] as const;
 
 export default function MapScreen() {
   const { colors } = useTheme();
@@ -66,18 +73,20 @@ export default function MapScreen() {
   const [radiusPickerVisible, setRadiusPickerVisible] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
-  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
-  const [reservationTotal, setReservationTotal] = useState<number>(0);
+  const [bookingSheetVisible, setBookingSheetVisible] = useState(false);
+  const [bookingSheetSnap, setBookingSheetSnap] = useState<(typeof BOOKING_SNAP_POINTS)[number]>(55);
+  const [bookingMode, setBookingMode] = useState<BookingMode>('parkNow');
+  const [parkNowDurationMinutes, setParkNowDurationMinutes] = useState(DEFAULT_PARK_NOW_DURATION_MINUTES);
+  const [selectedDurationPreset, setSelectedDurationPreset] = useState(30);
   const [reservationStart, setReservationStart] = useState<Date | null>(null);
   const [reservationEnd, setReservationEnd] = useState<Date | null>(null);
-  const [startDate, setStartDate] = useState<Date | null>(null);
-  const [endDate, setEndDate] = useState<Date | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [activeField, setActiveField] = useState<'start' | 'end' | null>(null);
+  const [processingBooking, setProcessingBooking] = useState(false);
+  const [unavailableNowSpotIds, setUnavailableNowSpotIds] = useState<Set<string>>(new Set());
   const [filterMenuExpanded, setFilterMenuExpanded] = useState(false);
   const handledOpenBookingRef = useRef(false);
   const handledViewSpotRef = useRef(false);
-  const pricingReferenceTimeRef = useRef(new Date());
 
   const params = useLocalSearchParams();
 
@@ -168,7 +177,7 @@ export default function MapScreen() {
             spot.longitude = lng;
           }
           // polite pause per request handled by Promise.all limit above
-        } catch (e) {
+        } catch {
           // ignore geocode failures; spot stays without coords
         }
       }));
@@ -208,51 +217,15 @@ export default function MapScreen() {
     };
   }, [fetchSpots]);
 
-  // If arriving from Browse with openBooking and a spotId, pre-select that spot and open the booking editor
-  useEffect(() => {
-    if (params.openBooking !== 'true') {
-      handledOpenBookingRef.current = false;
-      return;
-    }
-
-    if (handledOpenBookingRef.current) return;
-
-    if (params.openBooking === 'true' && params.spotId && filteredSpots.length > 0) {
-      const target = filteredSpots.find((s) => String(s.id) === String(params.spotId));
-      if (target) {
-        handledOpenBookingRef.current = true;
-        setSelectedSpot(target);
-        // call reserve flow so user can edit time/date and confirm
-        handleReserve(target);
-      }
-    }
-  }, [params.openBooking, params.spotId, filteredSpots]);
-
-  useEffect(() => {
-    if (params.viewSpot !== 'true') {
-      handledViewSpotRef.current = false;
-      return;
-    }
-
-    if (handledViewSpotRef.current) return;
-    if (!params.spotId) return;
-
-    const target = getFocusedSpotForReserve();
-    if (!target) return;
-
-    handledViewSpotRef.current = true;
-    handleMarkerPress(target);
-  }, [getFocusedSpotForReserve, handleMarkerPress, params.spotId, params.viewSpot, slideAnim]);
-
-  function handleMarkerPress(spot: Listing) {
+  const handleMarkerPress = useCallback((spot: Listing) => {
     setSelectedSpot(spot);
     Animated.spring(slideAnim, {
       toValue: 0,
       useNativeDriver: true,
     }).start();
-  }
+  }, [slideAnim]);
 
-  function getFocusedSpotForReserve(): Listing | null {
+  const getFocusedSpotForReserve = useCallback((): Listing | null => {
     if (!isViewSpot || !focusCoordinate) return null;
 
     const spotId = readSingleParam(params.spotId as string | string[] | undefined);
@@ -271,7 +244,7 @@ export default function MapScreen() {
       status: 'Active',
       spots: 1,
     };
-  }
+  }, [filteredSpots, focusCoordinate, focusedSpotMeta, isViewSpot, params.spotId]);
 
   const handleCardClose = () => {
     Animated.timing(slideAnim, {
@@ -286,7 +259,7 @@ export default function MapScreen() {
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
         const isVerticalSwipe = Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
-        return gestureState.dy > 6 && isVerticalSwipe;
+        return gestureState.dy > 14 && isVerticalSwipe;
       },
       onPanResponderMove: (_, gestureState) => {
         slideAnim.setValue(Math.max(0, gestureState.dy));
@@ -312,46 +285,144 @@ export default function MapScreen() {
     })
   ).current;
 
-  function handleReserve(spot: Listing) {
-    let start = new Date();
-    let end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hour
+  const openBookingSheet = useCallback((spot: Listing, mode: BookingMode = 'parkNow') => {
+    const now = new Date();
+    setBookingMode(mode);
+    setProcessingBooking(false);
 
-    if (params.date && params.startTime && params.endTime) {
+    if (mode === 'parkNow') {
+      const start = now;
+      const end = new Date(start.getTime() + parkNowDurationMinutes * 60000);
+      setReservationStart(start);
+      setReservationEnd(end);
+    } else if (params.date && params.startTime && params.endTime) {
       const selectedDate = new Date(String(params.date));
       const selectedStart = new Date(String(params.startTime));
       const selectedEnd = new Date(String(params.endTime));
 
-      start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), selectedStart.getHours(), selectedStart.getMinutes());
-      end = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), selectedEnd.getHours(), selectedEnd.getMinutes());
-      
+      const start = new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate(),
+        selectedStart.getHours(),
+        selectedStart.getMinutes()
+      );
+      const end = new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate(),
+        selectedEnd.getHours(),
+        selectedEnd.getMinutes()
+      );
+
       if (end <= start) {
-        end.setDate(end.getDate() + 1); // Handle overnight booking
+        end.setDate(end.getDate() + 1);
       }
+
+      setReservationStart(start);
+      setReservationEnd(end);
+    } else {
+      const start = new Date(now.getTime() + 60 * 60000);
+      const end = new Date(start.getTime() + 60 * 60000);
+      setReservationStart(start);
+      setReservationEnd(end);
     }
 
-    const hours = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60)));
+    setSelectedSpot(spot);
+    setBookingSheetSnap(55);
+    setBookingSheetVisible(true);
+  }, [params.date, params.endTime, params.startTime, parkNowDurationMinutes]);
 
-    const computedRate = computeHourlyRate({
-      baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
-      address: spot.address,
-      startTime: start,
-    });
-
+  const adjustParkNowDuration = useCallback((deltaMinutes: number) => {
+    const nextMinutes = Math.max(15, parkNowDurationMinutes + deltaMinutes);
+    const start = new Date();
+    setSelectedDurationPreset(deltaMinutes);
+    setParkNowDurationMinutes(nextMinutes);
     setReservationStart(start);
-    setReservationEnd(end);
-    setStartDate(start);
-    setEndDate(end);
-    setReservationTotal(computedRate * hours);
-    setPaymentModalVisible(true);
-  }
+    setReservationEnd(new Date(start.getTime() + nextMinutes * 60000));
+  }, [parkNowDurationMinutes]);
 
-  // Recompute total whenever start/end change
+  const checkOverlap = useCallback(async (spotId: string, start: Date, end: Date) => {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('spot_id', spotId)
+      .lt('start_time', end.toISOString())
+      .gt('end_time', start.toISOString())
+      .in('status', ['pending', 'active'])
+      .limit(1);
+
+    if (error) {
+      return { blocked: false, error: error.message };
+    }
+
+    return { blocked: (data ?? []).length > 0, error: null as string | null };
+  }, []);
+
+  const refreshUnavailableNow = useCallback(async () => {
+    const now = new Date();
+    const end = new Date(now.getTime() + PARK_NOW_MIN_AVAILABILITY_MINUTES * 60000);
+
+    const { data } = await supabase
+      .from('bookings')
+      .select('spot_id')
+      .lt('start_time', end.toISOString())
+      .gt('end_time', now.toISOString())
+      .in('status', ['pending', 'active']);
+
+    const blocked = new Set<string>((data ?? []).map((row: any) => String(row?.spot_id)).filter(Boolean));
+    setUnavailableNowSpotIds(blocked);
+  }, []);
+
+  // If arriving from Browse with openBooking and a spotId, pre-select that spot and open the booking editor
   useEffect(() => {
-    if (!selectedSpot || !reservationStart || !reservationEnd) return;
-    const hours = Math.max(1, Math.ceil((reservationEnd.getTime() - reservationStart.getTime()) / (1000 * 60 * 60)));
-    const rate = computeHourlyRate({ baseRate: selectedSpot.pricePerHour ?? DEFAULT_BASE_RATE, address: selectedSpot.address, startTime: reservationStart });
-    setReservationTotal(rate * hours);
-  }, [reservationStart, reservationEnd, selectedSpot]);
+    if (params.openBooking !== 'true') {
+      handledOpenBookingRef.current = false;
+      return;
+    }
+
+    if (handledOpenBookingRef.current) return;
+
+    if (params.openBooking === 'true' && params.spotId && filteredSpots.length > 0) {
+      const target = filteredSpots.find((s) => String(s.id) === String(params.spotId));
+      if (target) {
+        handledOpenBookingRef.current = true;
+        setSelectedSpot(target);
+        // open reserve flow so user can edit date range and confirm
+        openBookingSheet(target, 'reserve');
+      }
+    }
+  }, [params.openBooking, params.spotId, filteredSpots, openBookingSheet]);
+
+  useEffect(() => {
+    if (params.viewSpot !== 'true') {
+      handledViewSpotRef.current = false;
+      return;
+    }
+
+    if (handledViewSpotRef.current) return;
+    if (!params.spotId) return;
+
+    const target = getFocusedSpotForReserve();
+    if (!target) return;
+
+    handledViewSpotRef.current = true;
+    handleMarkerPress(target);
+  }, [getFocusedSpotForReserve, handleMarkerPress, params.spotId, params.viewSpot]);
+
+  useEffect(() => {
+    refreshUnavailableNow();
+    const channel = supabase
+      .channel('bookings-map-overlap')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        refreshUnavailableNow();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refreshUnavailableNow]);
 
   const formatDateLabel = (date: Date | null) => {
     if (!date) return null;
@@ -363,7 +434,7 @@ export default function MapScreen() {
   };
 
   const openDatePickerForField = (field: 'start' | 'end') => {
-    if (field === 'end' && !startDate) return;
+    if (field === 'end' && !reservationStart) return;
     setActiveField(field);
     setPickerOpen(true);
   };
@@ -372,7 +443,7 @@ export default function MapScreen() {
     if (!activeField) return;
 
     if (activeField === 'start') {
-      const sourceStart = startDate ?? reservationStart ?? new Date();
+      const sourceStart = reservationStart ?? new Date();
       const nextStart = new Date(
         day.getFullYear(),
         day.getMonth(),
@@ -383,13 +454,10 @@ export default function MapScreen() {
         0
       );
 
-      setStartDate(nextStart);
       setReservationStart(nextStart);
 
-      if (endDate && endDate.getTime() < nextStart.getTime()) {
-        setEndDate(null);
+      if (reservationEnd && reservationEnd.getTime() < nextStart.getTime()) {
         setReservationEnd(null);
-        setReservationTotal(0);
       }
 
       setPickerOpen(false);
@@ -397,9 +465,9 @@ export default function MapScreen() {
       return;
     }
 
-    if (!startDate) return;
+    if (!reservationStart) return;
 
-    const sourceEnd = endDate ?? reservationEnd ?? new Date(startDate.getTime() + 60 * 60 * 1000);
+    const sourceEnd = reservationEnd ?? new Date(reservationStart.getTime() + 60 * 60 * 1000);
     const nextEnd = new Date(
       day.getFullYear(),
       day.getMonth(),
@@ -410,19 +478,33 @@ export default function MapScreen() {
       0
     );
 
-    if (nextEnd.getTime() < startDate.getTime()) {
+    if (nextEnd.getTime() < reservationStart.getTime()) {
       Alert.alert('Invalid end date', 'End date cannot be before start date.');
       return;
     }
 
-    setEndDate(nextEnd);
     setReservationEnd(nextEnd);
     setPickerOpen(false);
     setActiveField(null);
   };
 
-  const handlePayment = async () => {
-    if (!selectedSpot || !reservationStart || !reservationEnd) {
+  const bookingPrice = useMemo(() => {
+    if (!selectedSpot || !reservationStart || !reservationEnd) return null;
+    return computeBookingPriceBreakdown({
+      mode: bookingMode,
+      start: reservationStart,
+      end: reservationEnd,
+      hostRate: selectedSpot.pricePerHour,
+    });
+  }, [bookingMode, reservationEnd, reservationStart, selectedSpot]);
+
+  const handleConfirmAndPay = async () => {
+    if (!selectedSpot || !reservationStart || !reservationEnd || !bookingPrice) {
+      return;
+    }
+
+    if (bookingMode === 'reserve' && reservationEnd.getTime() < reservationStart.getTime()) {
+      Alert.alert('Invalid dates', 'End date cannot be before start date.');
       return;
     }
 
@@ -434,62 +516,93 @@ export default function MapScreen() {
       Alert.alert('Sign in required', 'Please log in to book a spot.', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Log In', onPress: () => {
-          setPaymentModalVisible(false);
+          setBookingSheetVisible(false);
           router.push('/(auth)/login');
         }},
       ]);
       return;
     }
 
-    const hours = Math.max(1, (reservationEnd.getTime() - reservationStart.getTime()) / 3600000);
-    const rate = computeHourlyRate({
-      baseRate: selectedSpot.pricePerHour ?? DEFAULT_BASE_RATE,
-      address: selectedSpot.address,
-      startTime: reservationStart,
-    });
-    const baseAmount = reservationTotal > 0 ? reservationTotal : rate * hours;
-    const totalAmount = baseAmount * 1.12;
+    setProcessingBooking(true);
 
-    // Try insert with amount/price; if DB schema lacks those columns, retry without them.
-    let { error } = await supabase.from('bookings').insert({
+    const overlapResult = await checkOverlap(selectedSpot.id, reservationStart, reservationEnd);
+    if (overlapResult.error) {
+      setProcessingBooking(false);
+      Alert.alert('Availability check failed', overlapResult.error);
+      return;
+    }
+
+    if (overlapResult.blocked) {
+      setProcessingBooking(false);
+      Alert.alert('Spot unavailable', 'This spot is already booked for that time window.');
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 950));
+
+    const status = bookingMode === 'parkNow' ? 'active' : 'pending';
+    const payload = {
       spot_id: selectedSpot.id,
       user_id: user.id,
       start_time: reservationStart.toISOString(),
       end_time: reservationEnd.toISOString(),
-      status: 'confirmed',
-      amount: Math.round(totalAmount * 100) / 100,
-      price_per_hour: Math.round(rate * 100) / 100,
-    });
+      status,
+      total_price: bookingPrice.total,
+      platform_fee: bookingPrice.platformFee,
+      host_payout: bookingPrice.hostPayout,
+      created_at: new Date().toISOString(),
+    };
+
+    let { data: inserted, error } = await supabase
+      .from('bookings')
+      .insert(payload)
+      .select('id')
+      .single();
 
     if (error) {
       const msg = String(error.message || '').toLowerCase();
-      const looksLikeMissingCols = msg.includes('price_per_hour') || msg.includes('amount') || msg.includes('schema cache') || msg.includes('column');
-      if (looksLikeMissingCols) {
-        // retry without optional fields
-        const { error: retryError } = await supabase.from('bookings').insert({
-          spot_id: selectedSpot.id,
-          user_id: user.id,
-          start_time: reservationStart.toISOString(),
-          end_time: reservationEnd.toISOString(),
-          status: 'confirmed',
-        });
+      const looksLikeOptionalColumns = msg.includes('platform_fee') || msg.includes('host_payout') || msg.includes('total_price') || msg.includes('column') || msg.includes('schema cache');
+      if (looksLikeOptionalColumns) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('bookings')
+          .insert({
+            spot_id: selectedSpot.id,
+            user_id: user.id,
+            start_time: reservationStart.toISOString(),
+            end_time: reservationEnd.toISOString(),
+            status,
+            created_at: new Date().toISOString(),
+          })
+          .select('id')
+          .single();
 
-        if (retryError) {
-          Alert.alert('Booking failed', retryError.message || 'Unable to create reservation.');
+        if (fallbackError) {
+          setProcessingBooking(false);
+          Alert.alert('Booking failed', fallbackError.message || 'Unable to create booking.');
           return;
         }
+
+        void fallbackData;
       } else {
-        Alert.alert('Booking failed', error.message || 'Unable to create reservation.');
+        setProcessingBooking(false);
+        Alert.alert('Booking failed', error.message || 'Unable to create booking.');
         return;
       }
     }
+    void inserted;
 
-    const dateLabel = reservationStart.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    const timeLabel = `${reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-
-    Alert.alert('Spot confirmed', `${selectedSpot.title}\n${selectedSpot.address}\n${dateLabel} • ${timeLabel}`);
-    setPaymentModalVisible(false);
+    setProcessingBooking(false);
+    setBookingSheetVisible(false);
     handleCardClose();
+
+    if (bookingMode === 'parkNow') {
+      Alert.alert('Parking started', 'Your Park Now session is active.');
+      refreshUnavailableNow();
+      return;
+    }
+
+    Alert.alert('Reservation confirmed', 'Your future booking is confirmed and saved in Reservations.');
+    refreshUnavailableNow();
     router.push('/reservations');
   };
 
@@ -515,9 +628,7 @@ export default function MapScreen() {
     }
   };
 
-  const searchBarLabel = searchText
-    ? `📍 ${searchText}`
-    : '🔍 Find parking near…';
+  const searchBarLabel = searchText || 'Find parking near…';
 
   useEffect(() => {
     if (!searchActive) return;
@@ -593,22 +704,18 @@ export default function MapScreen() {
     // Apply all filters - spot must match ALL selected filters (AND logic)
     return filteredSpots.filter((s) => selectedFilters.every((filterId) => {
       if (filterId === 'under10') return (s.pricePerHour ?? 0) < 10;
-      if (filterId === 'available') return true; // demo: all available
+      if (filterId === 'available') return !unavailableNowSpotIds.has(String(s.id));
       if (filterId === 'driveway') return s.title.toLowerCase().includes('driveway');
       if (filterId === 'garage') return s.title.toLowerCase().includes('garage');
       return true;
     }));
-  }, [filteredSpots, selectedFilters]);
+  }, [filteredSpots, selectedFilters, unavailableNowSpotIds]);
 
   const sortedSpots = useMemo(() => (
     [...appliedSpots].sort((a, b) => (a.pricePerHour ?? 0) - (b.pricePerHour ?? 0))
   ), [appliedSpots]);
 
-  const getSpotRate = useCallback((spot: Listing) => computeHourlyRate({
-    baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
-    address: spot.address,
-    startTime: pricingReferenceTimeRef.current,
-  }), []);
+  const getSpotRate = useCallback((spot: Listing) => getHourlyRateForMode(spot.pricePerHour ?? DEFAULT_BASE_RATE, 'parkNow'), []);
 
   const spotRatesById = useMemo(() => {
     const rates: Record<string, number> = {};
@@ -642,6 +749,23 @@ export default function MapScreen() {
   }, [colors, getSpotRate, setSelectedSpot, setViewMode]);
 
   const keyExtractor = useCallback((item: Listing) => item.id.toString(), []);
+
+  const selectedSpotDistanceMiles = useMemo(() => {
+    if (!selectedSpot || !searchLocation || selectedSpot.latitude == null || selectedSpot.longitude == null) return null;
+    return calculateDistance(searchLocation.lat, searchLocation.lng, selectedSpot.latitude, selectedSpot.longitude);
+  }, [searchLocation, selectedSpot]);
+
+  const bookingSheetHeight = `${bookingSheetSnap}%` as const;
+
+  const formatMinutesToLabel = (minutes: number) => {
+    const safeMinutes = Math.max(0, minutes);
+    const hours = Math.floor(safeMinutes / 60);
+    const mins = safeMinutes % 60;
+
+    if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
+    if (hours > 0) return `${hours}h`;
+    return `${mins}m`;
+  };
 
   return (
     <View
@@ -1018,7 +1142,6 @@ export default function MapScreen() {
       {/* Bottom Sheet Card */}
       {selectedSpot && (
         <Animated.View
-          {...cardPanResponder.panHandlers}
           style={[
             styles.card,
             {
@@ -1028,106 +1151,224 @@ export default function MapScreen() {
             },
           ]}
         >
-          <View style={[styles.cardHandle, { backgroundColor: colors.border }]} />
+          <View
+            style={styles.cardHandleTouchZone}
+            {...cardPanResponder.panHandlers}
+          >
+            <View style={[styles.cardHandle, { backgroundColor: colors.border }]} />
+          </View>
           <View style={styles.cardContent}>
             <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{selectedSpot.title}</Text>
             <Text style={[styles.cardAddress, { color: colors.textSecondary }]} numberOfLines={2}>{selectedSpot.address}</Text>
             <Text style={[styles.cardPrice, { color: colors.primary }]}>
               ${getSpotRate(selectedSpot).toFixed(2)}/hr
             </Text>
+            {selectedSpotDistanceMiles != null && (
+              <Text style={[styles.cardAddress, { color: colors.textSecondary }]}>
+                {selectedSpotDistanceMiles.toFixed(2)} mi away
+              </Text>
+            )}
+            <Text
+              style={[
+                styles.availabilityBadge,
+                {
+                  color: unavailableNowSpotIds.has(String(selectedSpot.id)) ? colors.badgeCancelled : colors.badgeConfirmed,
+                },
+              ]}
+            >
+              {unavailableNowSpotIds.has(String(selectedSpot.id)) ? 'Unavailable now' : 'Available now'}
+            </Text>
 
             <TouchableOpacity
               style={[styles.reserveButton, { backgroundColor: colors.primary }]}
-              onPress={() => handleReserve(selectedSpot)}
+              onPress={() => {
+                setBookingMode('parkNow');
+                openBookingSheet(selectedSpot, 'parkNow');
+              }}
               activeOpacity={0.8}
             >
-              <Text style={styles.reserveButtonText}>Reserve Spot</Text>
+              <Text style={styles.reserveButtonText}>Park Now</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.secondarySheetButton, { borderColor: colors.border }]}
+              onPress={() => {
+                setBookingMode('reserve');
+                openBookingSheet(selectedSpot, 'reserve');
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.secondarySheetButtonText, { color: colors.text }]}>Reserve</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
       )}
 
-      {/* Checkout bottom sheet */}
-      <Modal visible={paymentModalVisible} animationType="slide" transparent>
-        <Portal.Host>
+      {/* Booking sheet */}
+      <Modal visible={bookingSheetVisible} animationType="slide" transparent>
+        <>
           <View style={styles.paymentModalOverlay}> 
-            <View style={[styles.paymentModalContent, { paddingBottom: insets.bottom + SPACING.md, backgroundColor: colors.backgroundCard }]}> 
-              <Text style={[styles.paymentTitle, { color: colors.text }]}>Review & Pay</Text>
-
-              <View style={styles.paymentHeaderRow}>
-                <View style={styles.paymentHeaderText}>
-                  <Text style={[styles.paymentSpotTitle, { color: colors.text }]} numberOfLines={1}>{selectedSpot?.title}</Text>
-                  <Text style={[styles.paymentSpotAddress, { color: colors.textSecondary }]} numberOfLines={1}>{selectedSpot?.address}</Text>
-                </View>
-                <Text style={[styles.paymentTimeText, { color: colors.text }]}>
-                  {reservationStart ? reservationStart.toLocaleDateString() : '--'}
-                  {'\n'}{reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
-                  {'–'}{reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
-                </Text>
+            <View style={[styles.paymentModalContent, { height: bookingSheetHeight, backgroundColor: colors.backgroundCard }]}> 
+              <View style={styles.sheetHandleRow}>
+                {BOOKING_SNAP_POINTS.map((snap) => (
+                  <TouchableOpacity
+                    key={snap}
+                    style={[
+                      styles.snapDot,
+                      { borderColor: colors.border },
+                      bookingSheetSnap === snap && { backgroundColor: colors.primary, borderColor: colors.primary },
+                    ]}
+                    onPress={() => setBookingSheetSnap(snap)}
+                    activeOpacity={0.8}
+                  />
+                ))}
               </View>
 
-              <View style={styles.divider} />
+              <ScrollView style={styles.sheetScrollable} contentContainerStyle={styles.sheetScrollableContent}>
+                <Text style={[styles.paymentTitle, { color: colors.text }]}>Confirm Booking</Text>
 
-              <View style={styles.dateRangeContainer}>
-                <Pressable
-                  style={[styles.dateField, { borderColor: colors.border, backgroundColor: colors.background }]}
-                  onPress={() => openDatePickerForField('start')}
-                >
-                  <Text style={[styles.dateFieldLabel, { color: colors.textSecondary }]}>Start Date</Text>
-                  <Text style={[styles.dateFieldValue, { color: startDate ? colors.text : colors.textSecondary }]}>
-                    {formatDateLabel(startDate) ?? 'Pick a start date'}
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  style={[
-                    styles.dateField,
-                    { borderColor: colors.border, backgroundColor: colors.background },
-                    !startDate && styles.dateFieldDisabled,
-                  ]}
-                  onPress={() => openDatePickerForField('end')}
-                  disabled={!startDate}
-                >
-                  <Text style={[styles.dateFieldLabel, { color: colors.textSecondary }]}>End Date</Text>
-                  <Text style={[styles.dateFieldValue, { color: endDate ? colors.text : colors.textSecondary }]}> 
-                    {formatDateLabel(endDate) ?? 'Pick an end date'}
-                  </Text>
-                </Pressable>
-              </View>
-
-            {/* Cost breakdown */}
-              <View style={[styles.costBreakdown, { borderTopColor: colors.border }]}> 
-                <View style={styles.costRow}>
-                  <Text style={[styles.costLabel, { color: colors.text }]}>Parking</Text>
-                  <Text style={[styles.costValue, { color: colors.text }]}>${reservationTotal.toFixed(2)}</Text>
+                <View style={[styles.modeTabs, { backgroundColor: colors.background }]}> 
+                  <TouchableOpacity
+                    style={[styles.modeTab, bookingMode === 'parkNow' && { backgroundColor: colors.primary }]}
+                    onPress={() => {
+                      setBookingMode('parkNow');
+                      if (selectedSpot) openBookingSheet(selectedSpot, 'parkNow');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.modeTabText, { color: bookingMode === 'parkNow' ? '#fff' : colors.textSecondary }]}>Park Now</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modeTab, bookingMode === 'reserve' && { backgroundColor: colors.primary }]}
+                    onPress={() => {
+                      setBookingMode('reserve');
+                      if (selectedSpot) openBookingSheet(selectedSpot, 'reserve');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.modeTabText, { color: bookingMode === 'reserve' ? '#fff' : colors.textSecondary }]}>Reserve</Text>
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.costRow}>
-                  <Text style={[styles.costLabel, { color: colors.text }]}>Service fee</Text>
-                  <Text style={[styles.costValue, { color: colors.text }]}>${(reservationTotal * 0.12).toFixed(2)}</Text>
-                </View>
-                <View style={[styles.costRowTotal, { borderTopColor: colors.border }]}
-                >
-                  <Text style={[styles.costLabelTotal, { color: colors.text }]}>Total</Text>
-                  <Text style={[styles.costValueTotal, { color: colors.primary }]}> 
-                    ${(reservationTotal * 1.12).toFixed(2)}
+
+                <View style={styles.paymentHeaderRow}>
+                  <View style={styles.paymentHeaderText}>
+                    <Text style={[styles.paymentSpotTitle, { color: colors.text }]} numberOfLines={1}>{selectedSpot?.title}</Text>
+                    <Text style={[styles.paymentSpotAddress, { color: colors.textSecondary }]} numberOfLines={1}>{selectedSpot?.address}</Text>
+                  </View>
+                  <Text style={[styles.paymentTimeText, { color: colors.text }]}> 
+                    {reservationStart ? reservationStart.toLocaleDateString() : '--'}
+                    {'\n'}{reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
+                    {'–'}{reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
                   </Text>
                 </View>
-              </View>
 
-              <View style={styles.paymentActions}>
+                <View style={styles.divider} />
+
+                {bookingMode === 'parkNow' ? (
+                  <View style={styles.parkNowSection}>
+                    <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>Duration</Text>
+                    <View style={styles.durationButtonsRow}>
+                      {[15, 30, 60].map((minutes) => (
+                        <TouchableOpacity
+                          key={minutes}
+                          style={[
+                            styles.durationButton,
+                            { borderColor: colors.border },
+                            selectedDurationPreset === minutes && {
+                              backgroundColor: colors.primary,
+                              borderColor: colors.primary,
+                            },
+                          ]}
+                          onPress={() => adjustParkNowDuration(minutes)}
+                          activeOpacity={0.8}
+                        >
+                          <Text
+                            style={[
+                              styles.durationButtonText,
+                              { color: colors.text },
+                              selectedDurationPreset === minutes && styles.durationButtonTextSelected,
+                            ]}
+                          >
+                            +{minutes}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <Text style={[styles.parkNowMeta, { color: colors.textSecondary }]}>Current: {formatMinutesToLabel(parkNowDurationMinutes)}</Text>
+                    <Text style={[styles.parkNowMeta, { color: colors.textSecondary }]}>Ends: {reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</Text>
+                  </View>
+                ) : (
+                  <View style={styles.dateRangeContainer}>
+                  <Pressable
+                    style={[styles.dateField, { borderColor: colors.border, backgroundColor: colors.background }]}
+                    onPress={() => openDatePickerForField('start')}
+                  >
+                    <Text style={[styles.dateFieldLabel, { color: colors.textSecondary }]}>Start Date</Text>
+                    <Text style={[styles.dateFieldValue, { color: reservationStart ? colors.text : colors.textSecondary }]}> 
+                      {formatDateLabel(reservationStart) ?? 'Pick a start date'}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.dateField,
+                      { borderColor: colors.border, backgroundColor: colors.background },
+                      !reservationStart && styles.dateFieldDisabled,
+                    ]}
+                    onPress={() => openDatePickerForField('end')}
+                    disabled={!reservationStart}
+                  >
+                    <Text style={[styles.dateFieldLabel, { color: colors.textSecondary }]}>End Date</Text>
+                    <Text style={[styles.dateFieldValue, { color: reservationEnd ? colors.text : colors.textSecondary }]}> 
+                      {formatDateLabel(reservationEnd) ?? 'Pick an end date'}
+                    </Text>
+                  </Pressable>
+                  </View>
+                )}
+
+                <View style={[styles.costBreakdown, { borderTopColor: colors.border }]}> 
+                  <View style={styles.costRow}>
+                    <Text style={[styles.costLabel, { color: colors.text }]}>Subtotal</Text>
+                    <Text style={[styles.costValue, { color: colors.text }]}>${bookingPrice?.subtotal.toFixed(2) ?? '0.00'}</Text>
+                  </View>
+                  <View style={styles.costRow}>
+                    <Text style={[styles.costLabel, { color: colors.text }]}>Booking fee</Text>
+                    <Text style={[styles.costValue, { color: colors.text }]}>${bookingPrice?.bookingFee.toFixed(2) ?? '0.00'}</Text>
+                  </View>
+                  <View style={styles.costRow}>
+                    <Text style={[styles.costLabel, { color: colors.text }]}>Platform fee (30%)</Text>
+                    <Text style={[styles.costValue, { color: colors.text }]}>${bookingPrice?.platformFee.toFixed(2) ?? '0.00'}</Text>
+                  </View>
+                  <View style={styles.costRow}>
+                    <Text style={[styles.costLabel, { color: colors.text }]}>Host payout (70%)</Text>
+                    <Text style={[styles.costValue, { color: colors.text }]}>${bookingPrice?.hostPayout.toFixed(2) ?? '0.00'}</Text>
+                  </View>
+                  <View style={[styles.costRowTotal, { borderTopColor: colors.border }]}
+                  >
+                    <Text style={[styles.costLabelTotal, { color: colors.text }]}>Total</Text>
+                    <Text style={[styles.costValueTotal, { color: colors.primary }]}> 
+                      ${bookingPrice?.total.toFixed(2) ?? '0.00'}
+                    </Text>
+                  </View>
+                  {bookingPrice?.minimumChargeApplied && (
+                    <Text style={[styles.minimumChargeNote, { color: colors.textSecondary }]}>Minimum charge applied for short low-rate session.</Text>
+                  )}
+                </View>
+              </ScrollView>
+
+              <View style={[styles.paymentActions, { paddingBottom: insets.bottom + SPACING.xs }]}> 
                 <TouchableOpacity
                   style={[styles.paymentButton, { backgroundColor: colors.primary }]}
-                  onPress={() => {
-                    handlePayment();
-                  }}
+                  onPress={handleConfirmAndPay}
                   activeOpacity={0.8}
+                  disabled={processingBooking}
                 >
-                  <Text style={styles.paymentButtonText}>Pay ${(reservationTotal * 1.12).toFixed(2)}</Text>
+                  <Text style={styles.paymentButtonText}>{processingBooking ? 'Processing...' : `Confirm & Pay $${bookingPrice?.total.toFixed(2) ?? '0.00'}`}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity 
                   style={styles.paymentCancelButton} 
-                  onPress={() => setPaymentModalVisible(false)}
+                  onPress={() => setBookingSheetVisible(false)}
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.paymentCancelText, { color: colors.textSecondary }]}>Cancel</Text>
@@ -1139,7 +1380,7 @@ export default function MapScreen() {
             locale="en"
             mode="single"
             visible={pickerOpen}
-            date={activeField === 'start' ? (startDate ?? undefined) : (endDate ?? undefined)}
+            date={activeField === 'start' ? (reservationStart ?? undefined) : (reservationEnd ?? undefined)}
             onDismiss={() => {
               setPickerOpen(false);
               setActiveField(null);
@@ -1153,10 +1394,11 @@ export default function MapScreen() {
               setPickerOpen(false);
               setActiveField(null);
             }}
-            validRange={activeField === 'end' && startDate ? { startDate } : undefined}
+            validRange={activeField === 'end' && reservationStart ? { startDate: reservationStart } : undefined}
           />
-        </Portal.Host>
+        </>
       </Modal>
+
     </View>
   );
 }
@@ -1208,7 +1450,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-
   clearButton: {
     position: 'absolute',
     left: SPACING.md,
@@ -1222,7 +1463,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-
   radiusAdjustButton: {
     position: 'absolute',
     left: SPACING.md,
@@ -1236,7 +1476,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-
   confirmOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1589,6 +1828,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: SPACING.md,
   },
+  cardHandleTouchZone: {
+    width: '100%',
+    paddingTop: 6,
+    paddingBottom: 6,
+    alignItems: 'center',
+  },
   cardContent: {
     alignItems: 'center',
   },
@@ -1616,11 +1861,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 52,
     justifyContent: 'center',
+    marginTop: 4,
   },
   reserveButtonText: {
     color: 'white',
     fontSize: 17,
     fontWeight: '700',
+  },
+  secondarySheetButton: {
+    marginTop: SPACING.sm,
+    borderWidth: 1,
+    borderRadius: RADIUS.md,
+    width: '100%',
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  secondarySheetButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  availabilityBadge: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: SPACING.sm,
   },
 
   // Payment Modal
@@ -1633,12 +1897,75 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: RADIUS.lg,
     borderTopRightRadius: RADIUS.lg,
     padding: SPACING.md,
-    maxHeight: '70%',
+  },
+  sheetHandleRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: SPACING.sm,
+  },
+  snapDot: {
+    width: 24,
+    height: 6,
+    borderRadius: 99,
+    borderWidth: 1,
+  },
+  sheetScrollable: {
+    flex: 1,
+  },
+  sheetScrollableContent: {
+    paddingBottom: SPACING.md,
   },
   paymentTitle: {
     fontSize: 22,
     fontWeight: '700',
     marginBottom: SPACING.md,
+  },
+  modeTabs: {
+    flexDirection: 'row',
+    borderRadius: RADIUS.md,
+    padding: 4,
+    marginBottom: SPACING.md,
+  },
+  modeTab: {
+    flex: 1,
+    borderRadius: RADIUS.sm,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  modeTabText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  parkNowSection: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  durationButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  durationButton: {
+    borderWidth: 1,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  durationButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  durationButtonTextSelected: {
+    color: '#fff',
+  },
+  parkNowMeta: {
+    fontSize: 13,
+    marginTop: 6,
   },
   paymentSpotTitle: {
     fontSize: 16,
@@ -1684,6 +2011,10 @@ const styles = StyleSheet.create({
   costValueTotal: {
     fontSize: 18,
     fontWeight: '800',
+  },
+  minimumChargeNote: {
+    fontSize: 12,
+    marginTop: 6,
   },
   paymentActions: {
     marginTop: SPACING.md,
@@ -1747,6 +2078,48 @@ const styles = StyleSheet.create({
   },
   paymentCancelText: {
     fontSize: 16,
+  },
+  activeBookingCard: {
+    position: 'absolute',
+    left: SPACING.md,
+    right: SPACING.md,
+    borderWidth: 1,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    zIndex: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  activeBookingTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  activeBookingSpot: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  activeBookingMeta: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  extendRow: {
+    marginTop: SPACING.sm,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  extendButton: {
+    borderWidth: 1,
+    borderRadius: RADIUS.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  extendButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
 

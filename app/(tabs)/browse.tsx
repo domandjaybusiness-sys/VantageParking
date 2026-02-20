@@ -203,7 +203,7 @@ export default function BrowseScreen() {
       latitude: 37.7749,
       longitude: -122.4194,
     };
-  }, [visibleSpots, spots, params.lat, params.lng]);
+  }, [visibleSpots, spots, geocodedCoords, params.lat, params.lng]);
 
   const onConfirmSpot = async (spot: Listing) => {
     // Navigate to the Map screen and open the booking editor so user can pick date/time
@@ -316,7 +316,7 @@ export default function BrowseScreen() {
               ))}
           </MapView>
           <View style={[styles.mapOverlayTag, { backgroundColor: colors.backgroundCard }]}>
-            <Text style={[styles.mapOverlayText, { color: colors.text }]}>🗺️ Tap to open map</Text>
+            <Text style={[styles.mapOverlayText, { color: colors.text }]}>Tap to open map</Text>
           </View>
         </TouchableOpacity>
       </AnimatedListItem>
