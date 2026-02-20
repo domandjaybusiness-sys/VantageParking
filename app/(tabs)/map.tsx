@@ -1241,7 +1241,17 @@ export default function MapScreen() {
                   const dateObj = new Date(year, month, day);
                   const isSelected = reservationStart && reservationStart.toDateString() === dateObj.toDateString();
                   return (
-                    <TouchableOpacity key={day} style={[styles.dayCell, isSelected && { backgroundColor: colors.primary, borderRadius: 8 }]} onPress={() => onSelectDate(dateObj)}>
+                    <TouchableOpacity
+                      key={day}
+                      style={[
+                        styles.dayCell,
+                        isSelected && { backgroundColor: colors.primary, borderRadius: 12 },
+                        { borderColor: isSelected ? colors.primary : 'transparent' },
+                      ]}
+                      onPress={() => onSelectDate(dateObj)}
+                      activeOpacity={0.8}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
                       <Text style={{ color: isSelected ? colors.background : colors.text }}>{day}</Text>
                     </TouchableOpacity>
                   );
@@ -1249,7 +1259,7 @@ export default function MapScreen() {
               })()}
             </View>
             <View style={styles.pickerActions}>
-              <TouchableOpacity style={[styles.pickerButton, { backgroundColor: colors.primary }]} onPress={() => setDatePickerVisible(false)}>
+              <TouchableOpacity style={[styles.pickerButton, { backgroundColor: colors.primary, width: '100%' }]} onPress={() => setDatePickerVisible(false)} activeOpacity={0.8}>
                 <Text style={[styles.pickerButtonText]}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -1262,9 +1272,9 @@ export default function MapScreen() {
         <View style={styles.pickerOverlay}>
           <View style={[styles.pickerContent, { backgroundColor: colors.backgroundCard }]}> 
             <Text style={[styles.pickerTitle, { color: colors.text }]}>Select start time</Text>
-            <ScrollView style={{ maxHeight: 240 }}>
+            <ScrollView style={{ maxHeight: 300 }}>
               {Array.from({ length: 24 }).map((_, h) => (
-                <TouchableOpacity key={h} style={styles.timeRow} onPress={() => onSelectTime(h, 0)}>
+                <TouchableOpacity key={h} style={styles.timeRow} onPress={() => onSelectTime(h, 0)} activeOpacity={0.8} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text style={{ color: colors.text }}>{new Date(0,0,0,h,0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
                 </TouchableOpacity>
               ))}
@@ -1285,7 +1295,7 @@ export default function MapScreen() {
             <Text style={[styles.pickerTitle, { color: colors.text }]}>Select duration</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {[1,2,3,4,6,8,12,24].map((h) => (
-                <TouchableOpacity key={h} style={[styles.durationChip, { borderColor: colors.border }]} onPress={() => onSelectDuration(h)}>
+                <TouchableOpacity key={h} style={[styles.durationChip, { borderColor: colors.border }]} onPress={() => onSelectDuration(h)} activeOpacity={0.8} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text style={{ color: colors.text }}>{h}h</Text>
                 </TouchableOpacity>
               ))}
@@ -1916,7 +1926,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.xs,
   },
   weekDay: {
-    width: 28,
+    width: 44,
     textAlign: 'center',
     fontSize: 12,
     fontWeight: '600',
@@ -1924,21 +1934,23 @@ const styles = StyleSheet.create({
   daysGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    justifyContent: 'flex-start',
   },
   dayCell: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    margin: 4,
+    margin: 6,
+    borderRadius: 8,
   },
   pickerActions: {
     marginTop: SPACING.md,
     alignItems: 'center',
+    paddingHorizontal: SPACING.md,
   },
   pickerButton: {
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: RADIUS.sm,
   },
@@ -1952,16 +1964,17 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   timeRow: {
-    paddingVertical: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#00000010',
   },
   durationChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    margin: 6,
+    margin: 8,
   },
   paymentCancelText: {
     fontSize: 16,
