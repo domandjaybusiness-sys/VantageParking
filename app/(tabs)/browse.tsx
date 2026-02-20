@@ -51,7 +51,18 @@ export default function BrowseScreen() {
       }
 
       const mapped = (data ?? []).map(mapSpotRow);
-      setSpots(mapped);
+
+      // Deduplicate spots by normalized address (prefer first seen)
+      const dedupedByAddress = Object.values(
+        mapped.reduce((acc: Record<string, Listing>, s) => {
+          const raw = (s.address || s.title || s.id || '').toString();
+          const key = raw.trim().toLowerCase();
+          if (!acc[key]) acc[key] = s;
+          return acc;
+        }, {})
+      );
+
+      setSpots(dedupedByAddress);
 
       // Client-side geocode for a few missing spots so thumbnails can show immediately
       const missing = mapped.filter((s) => s.latitude == null || s.longitude == null);

@@ -3,7 +3,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type ReservationItem = {
@@ -25,74 +25,87 @@ export default function ReservationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
+  const fetchReservations = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  useEffect(() => {
-    const fetchReservations = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+    if (!user) {
+      setReservations([]);
+      return;
+    }
 
-      if (!user) {
-        setReservations([]);
-        return;
-      }
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*, spot:spots ( title, address, lat, lng, latitude, longitude, price )')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
 
-      const { data, error } = await supabase
+    // If joined select fails or returns nothing, fall back to bookings-only query
+    let rows: any[] = [];
+    if (!error && data && data.length > 0) {
+      rows = data;
+    } else {
+      const { data: fbData, error: fbErr } = await supabase
         .from('bookings')
-        .select('*, spot:spots ( title, address, lat, lng, latitude, longitude, price )')
+        .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) {
+      if (fbErr) {
         setReservations([]);
         return;
       }
 
-      const now = Date.now();
-      const mapped = (data ?? []).map((row: any) => {
-        const startRaw = row?.start_time ?? row?.startTime ?? row?.date ?? row?.created_at;
-        const endRaw = row?.end_time ?? row?.endTime;
-        const start = startRaw ? new Date(startRaw) : new Date();
-        const end = endRaw ? new Date(endRaw) : new Date(start.getTime() + 60 * 60 * 1000);
-        const status = String(row?.status ?? 'Pending');
-        const statusLower = status.toLowerCase();
-        const isPast = ['paid', 'completed', 'cancelled'].includes(statusLower) || end.getTime() < now;
-        const spot = row?.spot ?? null;
-        const latRaw = row?.lat ?? row?.latitude ?? row?.spot_lat ?? row?.spotLat ?? spot?.lat ?? spot?.latitude ?? null;
-        const lngRaw = row?.lng ?? row?.longitude ?? row?.spot_lng ?? row?.spotLng ?? spot?.lng ?? spot?.longitude ?? null;
-        const lat = typeof latRaw === 'number' ? latRaw : (typeof latRaw === 'string' ? parseFloat(latRaw) : null);
-        const lng = typeof lngRaw === 'number' ? lngRaw : (typeof lngRaw === 'string' ? parseFloat(lngRaw) : null);
-        const pricePerHourRaw = row?.price_per_hour ?? row?.pricePerHour ?? row?.price ?? spot?.price ?? 0;
-        const pricePerHour = Number(pricePerHourRaw ?? 0);
-        const hoursRaw = row?.hours ?? row?.duration ?? 1;
-        const hoursValue = Number(hoursRaw ?? 1) || 1;
-        const derivedTotal = pricePerHour * hoursValue;
-        const totalRaw = row?.amount ?? row?.total ?? null;
-        const totalPrice = totalRaw == null ? derivedTotal : Number(totalRaw ?? 0);
+      rows = fbData ?? [];
+    }
 
-        return {
-          id: String(row?.id ?? ''),
-          spotName: row?.spot_name ?? row?.spot_title ?? row?.spotName ?? spot?.title ?? row?.address ?? 'Parking Spot',
-          address: row?.address ?? spot?.address ?? 'Address unavailable',
-          dateLabel: start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-          timeLabel: `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-          totalPrice,
-          status,
-          startTime: start,
-          endTime: end,
-          latitude: Number.isFinite(lat) ? lat : null,
-          longitude: Number.isFinite(lng) ? lng : null,
-          isPast,
-        };
-      });
+    const now = Date.now();
+    const mapped = (rows ?? []).map((row: any) => {
+      const startRaw = row?.start_time ?? row?.startTime ?? row?.date ?? row?.created_at;
+      const endRaw = row?.end_time ?? row?.endTime;
+      const start = startRaw ? new Date(startRaw) : new Date();
+      const end = endRaw ? new Date(endRaw) : new Date(start.getTime() + 60 * 60 * 1000);
+      const status = String(row?.status ?? 'Pending');
+      const statusLower = status.toLowerCase();
+      const isPast = ['paid', 'completed', 'cancelled'].includes(statusLower) || end.getTime() < now;
+      const spot = row?.spot ?? null;
+      const latRaw = row?.lat ?? row?.latitude ?? row?.spot_lat ?? row?.spotLat ?? spot?.lat ?? spot?.latitude ?? null;
+      const lngRaw = row?.lng ?? row?.longitude ?? row?.spot_lng ?? row?.spotLng ?? spot?.lng ?? spot?.longitude ?? null;
+      const lat = typeof latRaw === 'number' ? latRaw : (typeof latRaw === 'string' ? parseFloat(latRaw) : null);
+      const lng = typeof lngRaw === 'number' ? lngRaw : (typeof lngRaw === 'string' ? parseFloat(lngRaw) : null);
+      const pricePerHourRaw = row?.price_per_hour ?? row?.pricePerHour ?? row?.price ?? spot?.price ?? 0;
+      const pricePerHour = Number(pricePerHourRaw ?? 0);
+      const hoursRaw = row?.hours ?? row?.duration ?? 1;
+      const hoursValue = Number(hoursRaw ?? 1) || 1;
+      const derivedTotal = pricePerHour * hoursValue;
+      const totalRaw = row?.amount ?? row?.total ?? null;
+      const totalPrice = totalRaw == null ? derivedTotal : Number(totalRaw ?? 0);
 
-      const upcoming = mapped
-        .filter((r) => !r.isPast)
-        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+      return {
+        id: String(row?.id ?? ''),
+        spotName: row?.spot_name ?? row?.spot_title ?? row?.spotName ?? spot?.title ?? row?.address ?? 'Parking Spot',
+        address: row?.address ?? spot?.address ?? 'Address unavailable',
+        dateLabel: start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        timeLabel: `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        totalPrice,
+        status,
+        startTime: start,
+        endTime: end,
+        latitude: Number.isFinite(lat) ? lat : null,
+        longitude: Number.isFinite(lng) ? lng : null,
+        isPast,
+      };
+    });
 
-      setReservations(upcoming);
-    };
+    const upcoming = mapped
+      .filter((r) => !r.isPast)
+      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 
+    setReservations(upcoming);
+  };
+
+  useEffect(() => {
     fetchReservations();
 
     const channel = supabase
@@ -108,6 +121,39 @@ export default function ReservationsScreen() {
   }, []);
 
   const upcomingCount = useMemo(() => reservations.length, [reservations]);
+
+  const [loadingCancelId, setLoadingCancelId] = useState<string | null>(null);
+
+  const handleCancelReservation = async (id: string) => {
+    Alert.alert('Cancel reservation', 'Are you sure you want to cancel this reservation?', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Yes, cancel',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setLoadingCancelId(id);
+            const { error } = await supabase.from('bookings').delete().eq('id', id);
+
+            if (error) {
+              console.warn('Failed to cancel reservation', error);
+              Alert.alert('Error', 'Could not cancel reservation.');
+              setLoadingCancelId(null);
+              return;
+            }
+
+            // Optimistically update UI
+            setReservations((prev) => prev.filter((r) => r.id !== id));
+            setLoadingCancelId(null);
+          } catch (err) {
+            console.warn('Cancel error', err);
+            Alert.alert('Error', 'Could not cancel reservation.');
+            setLoadingCancelId(null);
+          }
+        },
+      },
+    ]);
+  };
 
   return (
     <ScrollView
@@ -153,6 +199,14 @@ export default function ReservationsScreen() {
                 activeOpacity={0.8}
               >
                 <Text style={[styles.mapButtonText, { color: colors.text }]}>View on Map</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.cancelButton, { borderColor: colors.border, backgroundColor: colors.backgroundCard }]}
+                onPress={() => handleCancelReservation(reservation.id)}
+                activeOpacity={0.8}
+                disabled={loadingCancelId != null}
+              >
+                <Text style={[styles.cancelButtonText, { color: colors.badgeCancelled ?? '#d9534f' }]}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -239,6 +293,18 @@ const styles = StyleSheet.create({
   mapButtonText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  cancelButton: {
+    alignSelf: 'flex-start',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginLeft: 8,
+  },
+  cancelButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   empty: {
     borderWidth: StyleSheet.hairlineWidth,

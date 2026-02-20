@@ -74,6 +74,10 @@ export default function MapScreen() {
   const [reservationStart, setReservationStart] = useState<Date | null>(null);
   const [reservationEnd, setReservationEnd] = useState<Date | null>(null);
   const [filterMenuExpanded, setFilterMenuExpanded] = useState(false);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [timePickerVisible, setTimePickerVisible] = useState(false);
+  const [durationPickerVisible, setDurationPickerVisible] = useState(false);
+  const [pickerMonth, setPickerMonth] = useState(() => new Date());
 
   const params = useLocalSearchParams();
 
@@ -262,6 +266,79 @@ export default function MapScreen() {
     setPaymentModalVisible(true);
   };
 
+  // Recompute total whenever start/end change
+  useEffect(() => {
+    if (!selectedSpot || !reservationStart || !reservationEnd) return;
+    const hours = Math.max(1, Math.ceil((reservationEnd.getTime() - reservationStart.getTime()) / (1000 * 60 * 60)));
+    const rate = computeHourlyRate({ baseRate: selectedSpot.pricePerHour ?? DEFAULT_BASE_RATE, address: selectedSpot.address, startTime: reservationStart });
+    setReservationTotal(rate * hours);
+  }, [reservationStart, reservationEnd, selectedSpot]);
+
+  const changeStartByHours = (deltaHours: number) => {
+    if (!reservationStart || !reservationEnd) return;
+    const newStart = new Date(reservationStart.getTime() + deltaHours * 3600000);
+    // keep duration constant
+    const durationMs = reservationEnd.getTime() - reservationStart.getTime();
+    const newEnd = new Date(newStart.getTime() + durationMs);
+    setReservationStart(newStart);
+    setReservationEnd(newEnd);
+  };
+
+  const changeDurationByHours = (deltaHours: number) => {
+    if (!reservationStart || !reservationEnd) return;
+    const newEnd = new Date(reservationEnd.getTime() + deltaHours * 3600000);
+    // prevent negative or zero duration
+    if (newEnd.getTime() <= reservationStart.getTime()) return;
+    setReservationEnd(newEnd);
+  };
+
+  const changeDateByDays = (deltaDays: number) => {
+    if (!reservationStart || !reservationEnd) return;
+    const newStart = new Date(reservationStart);
+    newStart.setDate(newStart.getDate() + deltaDays);
+    const newEnd = new Date(reservationEnd);
+    newEnd.setDate(newEnd.getDate() + deltaDays);
+    setReservationStart(newStart);
+    setReservationEnd(newEnd);
+  };
+
+  const openDatePicker = () => {
+    setPickerMonth(reservationStart ?? new Date());
+    setDatePickerVisible(true);
+  };
+
+  const onSelectDate = (day: Date) => {
+    if (!reservationStart || !reservationEnd) return;
+    const hours = reservationStart.getHours();
+    const minutes = reservationStart.getMinutes();
+    const newStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes);
+    const durationMs = reservationEnd.getTime() - reservationStart.getTime();
+    const newEnd = new Date(newStart.getTime() + durationMs);
+    setReservationStart(newStart);
+    setReservationEnd(newEnd);
+    setDatePickerVisible(false);
+  };
+
+  const openTimePicker = () => setTimePickerVisible(true);
+  const onSelectTime = (hours: number, minutes = 0) => {
+    if (!reservationStart || !reservationEnd) return;
+    const newStart = new Date(reservationStart);
+    newStart.setHours(hours, minutes, 0, 0);
+    const durationMs = reservationEnd.getTime() - reservationStart.getTime();
+    const newEnd = new Date(newStart.getTime() + durationMs);
+    setReservationStart(newStart);
+    setReservationEnd(newEnd);
+    setTimePickerVisible(false);
+  };
+
+  const openDurationPicker = () => setDurationPickerVisible(true);
+  const onSelectDuration = (hours: number) => {
+    if (!reservationStart) return;
+    const newEnd = new Date(reservationStart.getTime() + Math.max(1, hours) * 3600000);
+    setReservationEnd(newEnd);
+    setDurationPickerVisible(false);
+  };
+
   const handlePayment = async () => {
     if (!selectedSpot || !reservationStart || !reservationEnd) {
       return;
@@ -291,7 +368,8 @@ export default function MapScreen() {
     const baseAmount = reservationTotal > 0 ? reservationTotal : rate * hours;
     const totalAmount = baseAmount * 1.12;
 
-    const { error } = await supabase.from('bookings').insert({
+    // Try insert with amount/price; if DB schema lacks those columns, retry without them.
+    let { error } = await supabase.from('bookings').insert({
       spot_id: selectedSpot.id,
       user_id: user.id,
       start_time: reservationStart.toISOString(),
@@ -302,8 +380,26 @@ export default function MapScreen() {
     });
 
     if (error) {
-      Alert.alert('Booking failed', error.message || 'Unable to create reservation.');
-      return;
+      const msg = String(error.message || '').toLowerCase();
+      const looksLikeMissingCols = msg.includes('price_per_hour') || msg.includes('amount') || msg.includes('schema cache') || msg.includes('column');
+      if (looksLikeMissingCols) {
+        // retry without optional fields
+        const { error: retryError } = await supabase.from('bookings').insert({
+          spot_id: selectedSpot.id,
+          user_id: user.id,
+          start_time: reservationStart.toISOString(),
+          end_time: reservationEnd.toISOString(),
+          status: 'confirmed',
+        });
+
+        if (retryError) {
+          Alert.alert('Booking failed', retryError.message || 'Unable to create reservation.');
+          return;
+        }
+      } else {
+        Alert.alert('Booking failed', error.message || 'Unable to create reservation.');
+        return;
+      }
     }
 
     const dateLabel = reservationStart.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
@@ -996,13 +1092,79 @@ export default function MapScreen() {
           <View style={[styles.paymentModalContent, { paddingBottom: insets.bottom + SPACING.md, backgroundColor: colors.backgroundCard }]}> 
             <Text style={[styles.paymentTitle, { color: colors.text }]}>Review & Pay</Text>
 
-            <Text style={[styles.paymentSpotTitle, { color: colors.text }]} numberOfLines={1}>{selectedSpot?.title}</Text>
-            <Text style={[styles.paymentSpotAddress, { color: colors.textSecondary }]} numberOfLines={1}>{selectedSpot?.address}</Text>
+            <View style={styles.paymentHeaderRow}>
+              <View style={styles.paymentHeaderText}>
+                <Text style={[styles.paymentSpotTitle, { color: colors.text }]} numberOfLines={1}>{selectedSpot?.title}</Text>
+                <Text style={[styles.paymentSpotAddress, { color: colors.textSecondary }]} numberOfLines={1}>{selectedSpot?.address}</Text>
+              </View>
+              <Text style={[styles.paymentTimeText, { color: colors.text }]}>
+                {reservationStart ? reservationStart.toLocaleDateString() : '--'}
+                {'\n'}{reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
+                {'–'}{reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
+              </Text>
+            </View>
 
-            <Text style={[styles.paymentTimeText, { color: colors.text }]}>
-              Time: {reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
-              {'–'}{reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
-            </Text>
+            <View style={styles.divider} />
+
+            {/* Date / Time editor: change date by day, start hour by hour, and duration */}
+            <View style={[styles.timeEditorRow, { marginTop: 6, marginBottom: 6 }]}> 
+              <View style={styles.timeEditorColumn}>
+                <Text style={[styles.timeEditorLabel, { color: colors.textSecondary }]}>Date</Text>
+                <View style={styles.timeEditorControls}>
+                  <TouchableOpacity onPress={() => changeDateByDays(-1)} style={[styles.timeStepButton, { borderColor: colors.border }]}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.timeStepText, { color: colors.text }]}>‹</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={openDatePicker} style={{ paddingHorizontal: 6 }} activeOpacity={0.8}>
+                    <Text style={[styles.timeEditorValue, { color: colors.text }]}>{reservationStart ? reservationStart.toLocaleDateString() : '--'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => changeDateByDays(1)} style={[styles.timeStepButton, { borderColor: colors.border }]}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.timeStepText, { color: colors.text }]}>›</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.timeEditorColumn}>
+                <Text style={[styles.timeEditorLabel, { color: colors.textSecondary }]}>Start</Text>
+                <View style={styles.timeEditorControls}>
+                  <TouchableOpacity onPress={() => changeStartByHours(-1)} style={[styles.timeStepButton, { borderColor: colors.border }]}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.timeStepText, { color: colors.text }]}>−</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={openTimePicker} style={{ paddingHorizontal: 6 }} activeOpacity={0.8}>
+                    <Text style={[styles.timeEditorValue, { color: colors.text }]}>{reservationStart ? reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => changeStartByHours(1)} style={[styles.timeStepButton, { borderColor: colors.border }]}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.timeStepText, { color: colors.text }]}>＋</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.timeEditorColumn}>
+                <Text style={[styles.timeEditorLabel, { color: colors.textSecondary }]}>Duration</Text>
+                <View style={styles.timeEditorControls}>
+                  <TouchableOpacity onPress={() => changeDurationByHours(-1)} style={[styles.timeStepButton, { borderColor: colors.border }]}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.timeStepText, { color: colors.text }]}>−</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={openDurationPicker} style={{ paddingHorizontal: 6 }} activeOpacity={0.8}>
+                    <Text style={[styles.timeEditorValue, { color: colors.text }]}>{reservationStart && reservationEnd ? Math.max(1, Math.ceil((reservationEnd.getTime() - reservationStart.getTime()) / (1000*60*60))) + 'h' : '--'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => changeDurationByHours(1)} style={[styles.timeStepButton, { borderColor: colors.border }]}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.timeStepText, { color: colors.text }]}>＋</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
 
             {/* Cost breakdown */}
             <View style={[styles.costBreakdown, { borderTopColor: colors.border }]}>
@@ -1040,6 +1202,97 @@ export default function MapScreen() {
                 activeOpacity={0.7}
               >
                 <Text style={[styles.paymentCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Date Picker Modal */}
+      <Modal visible={datePickerVisible} animationType="fade" transparent>
+        <View style={styles.pickerOverlay}>
+          <View style={[styles.pickerContent, { backgroundColor: colors.backgroundCard }]}> 
+            <View style={styles.pickerHeader}>
+              <TouchableOpacity onPress={() => setPickerMonth(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() - 1, 1))}>
+                <Text style={[styles.pickerNav, { color: colors.text }]}>‹</Text>
+              </TouchableOpacity>
+              <Text style={[styles.pickerMonth, { color: colors.text }]}>{pickerMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' })}</Text>
+              <TouchableOpacity onPress={() => setPickerMonth(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() + 1, 1))}>
+                <Text style={[styles.pickerNav, { color: colors.text }]}>›</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.weekDaysRow}>
+              {['Su','Mo','Tu','We','Th','Fr','Sa'].map((d) => (
+                <Text key={d} style={[styles.weekDay, { color: colors.textSecondary }]}>{d}</Text>
+              ))}
+            </View>
+            <View style={styles.daysGrid}>
+              {(() => {
+                const year = pickerMonth.getFullYear();
+                const month = pickerMonth.getMonth();
+                const first = new Date(year, month, 1);
+                const startOffset = first.getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const cells: (number | null)[] = [];
+                for (let i = 0; i < startOffset; i++) cells.push(null);
+                for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                return cells.map((day, idx) => {
+                  if (day == null) return <View key={`empty-${idx}`} style={styles.dayCell} />;
+                  const dateObj = new Date(year, month, day);
+                  const isSelected = reservationStart && reservationStart.toDateString() === dateObj.toDateString();
+                  return (
+                    <TouchableOpacity key={day} style={[styles.dayCell, isSelected && { backgroundColor: colors.primary, borderRadius: 8 }]} onPress={() => onSelectDate(dateObj)}>
+                      <Text style={{ color: isSelected ? colors.background : colors.text }}>{day}</Text>
+                    </TouchableOpacity>
+                  );
+                });
+              })()}
+            </View>
+            <View style={styles.pickerActions}>
+              <TouchableOpacity style={[styles.pickerButton, { backgroundColor: colors.primary }]} onPress={() => setDatePickerVisible(false)}>
+                <Text style={[styles.pickerButtonText]}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Time Picker Modal */}
+      <Modal visible={timePickerVisible} animationType="fade" transparent>
+        <View style={styles.pickerOverlay}>
+          <View style={[styles.pickerContent, { backgroundColor: colors.backgroundCard }]}> 
+            <Text style={[styles.pickerTitle, { color: colors.text }]}>Select start time</Text>
+            <ScrollView style={{ maxHeight: 240 }}>
+              {Array.from({ length: 24 }).map((_, h) => (
+                <TouchableOpacity key={h} style={styles.timeRow} onPress={() => onSelectTime(h, 0)}>
+                  <Text style={{ color: colors.text }}>{new Date(0,0,0,h,0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={styles.pickerActions}>
+              <TouchableOpacity style={[styles.pickerButton, { backgroundColor: colors.primary }]} onPress={() => setTimePickerVisible(false)}>
+                <Text style={[styles.pickerButtonText]}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Duration Picker Modal */}
+      <Modal visible={durationPickerVisible} animationType="fade" transparent>
+        <View style={styles.pickerOverlay}>
+          <View style={[styles.pickerContent, { backgroundColor: colors.backgroundCard }]}> 
+            <Text style={[styles.pickerTitle, { color: colors.text }]}>Select duration</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {[1,2,3,4,6,8,12,24].map((h) => (
+                <TouchableOpacity key={h} style={[styles.durationChip, { borderColor: colors.border }]} onPress={() => onSelectDuration(h)}>
+                  <Text style={{ color: colors.text }}>{h}h</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.pickerActions}>
+              <TouchableOpacity style={[styles.pickerButton, { backgroundColor: colors.primary }]} onPress={() => setDurationPickerVisible(false)}>
+                <Text style={[styles.pickerButtonText]}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1508,8 +1761,8 @@ const styles = StyleSheet.create({
   paymentModalContent: {
     borderTopLeftRadius: RADIUS.lg,
     borderTopRightRadius: RADIUS.lg,
-    padding: SPACING.lg,
-    maxHeight: '75%',
+    padding: SPACING.md,
+    maxHeight: '70%',
   },
   paymentTitle: {
     fontSize: 22,
@@ -1518,15 +1771,17 @@ const styles = StyleSheet.create({
   },
   paymentSpotTitle: {
     fontSize: 16,
-    marginBottom: 4,
+    marginBottom: 2,
+    fontWeight: '700',
   },
   paymentSpotAddress: {
-    fontSize: 14,
-    marginBottom: SPACING.sm,
+    fontSize: 13,
+    marginBottom: SPACING.xs,
   },
   paymentTimeText: {
-    fontSize: 15,
-    marginBottom: SPACING.sm,
+    fontSize: 13,
+    marginBottom: SPACING.xs,
+    textAlign: 'right',
   },
   costBreakdown: {
     borderTopWidth: 1,
@@ -1560,7 +1815,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   paymentActions: {
-    marginTop: SPACING.lg,
+    marginTop: SPACING.md,
   },
   paymentButton: {
     paddingVertical: SPACING.md,
@@ -1578,6 +1833,135 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     paddingVertical: SPACING.sm,
     alignItems: 'center',
+  },
+  timeEditorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  timeEditorColumn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  timeEditorLabel: {
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  timeEditorControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  timeStepButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  timeStepText: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  timeEditorValue: {
+    minWidth: 64,
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#00000010',
+    marginVertical: 8,
+  },
+  paymentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  paymentHeaderText: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: SPACING.md,
+  },
+  pickerContent: {
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  pickerNav: {
+    fontSize: 20,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+  },
+  pickerMonth: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  weekDaysRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.xs,
+  },
+  weekDay: {
+    width: 28,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  dayCell: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: 4,
+  },
+  pickerActions: {
+    marginTop: SPACING.md,
+    alignItems: 'center',
+  },
+  pickerButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: RADIUS.sm,
+  },
+  pickerButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: SPACING.sm,
+  },
+  timeRow: {
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#00000010',
+  },
+  durationChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    margin: 6,
   },
   paymentCancelText: {
     fontSize: 16,
