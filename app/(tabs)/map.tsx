@@ -76,6 +76,7 @@ export default function MapScreen() {
   const [activeField, setActiveField] = useState<'start' | 'end' | null>(null);
   const [filterMenuExpanded, setFilterMenuExpanded] = useState(false);
   const handledOpenBookingRef = useRef(false);
+  const pricingReferenceTimeRef = useRef(new Date());
 
   const params = useLocalSearchParams();
 
@@ -546,12 +547,22 @@ export default function MapScreen() {
     [...appliedSpots].sort((a, b) => (a.pricePerHour ?? 0) - (b.pricePerHour ?? 0))
   ), [appliedSpots]);
 
+  const getSpotRate = useCallback((spot: Listing) => computeHourlyRate({
+    baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
+    address: spot.address,
+    startTime: pricingReferenceTimeRef.current,
+  }), []);
+
+  const spotRatesById = useMemo(() => {
+    const rates: Record<string, number> = {};
+    for (const spot of appliedSpots) {
+      rates[spot.id] = getSpotRate(spot);
+    }
+    return rates;
+  }, [appliedSpots, getSpotRate]);
+
   const renderListItem = useCallback(({ item }: { item: Listing }) => {
-    const computedRate = computeHourlyRate({
-      baseRate: item.pricePerHour ?? DEFAULT_BASE_RATE,
-      address: item.address,
-      startTime: new Date(),
-    });
+    const computedRate = getSpotRate(item);
 
     return (
     <TouchableOpacity 
@@ -571,7 +582,7 @@ export default function MapScreen() {
       </Text>
     </TouchableOpacity>
   );
-  }, [colors, setSelectedSpot, setViewMode]);
+  }, [colors, getSpotRate, setSelectedSpot, setViewMode]);
 
   const keyExtractor = useCallback((item: Listing) => item.id.toString(), []);
 
@@ -610,6 +621,8 @@ export default function MapScreen() {
               key={spot.id}
               coordinate={{ latitude: spot.latitude!, longitude: spot.longitude! }}
               onPress={() => handleMarkerPress(spot)}
+              tracksViewChanges={false}
+              tracksInfoWindowChanges={false}
             >
               <TouchableOpacity
                 style={[
@@ -621,11 +634,7 @@ export default function MapScreen() {
                 ]}
               >
                 <Text style={styles.pillText}>
-                  ${computeHourlyRate({
-                    baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
-                    address: spot.address,
-                    startTime: new Date(),
-                  }).toFixed(0)}
+                  ${(spotRatesById[spot.id] ?? getSpotRate(spot)).toFixed(0)}
                 </Text>
               </TouchableOpacity>
             </Marker>
@@ -929,11 +938,7 @@ export default function MapScreen() {
             <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{selectedSpot.title}</Text>
             <Text style={[styles.cardAddress, { color: colors.textSecondary }]} numberOfLines={2}>{selectedSpot.address}</Text>
             <Text style={[styles.cardPrice, { color: colors.primary }]}>
-              ${computeHourlyRate({
-                baseRate: selectedSpot.pricePerHour ?? DEFAULT_BASE_RATE,
-                address: selectedSpot.address,
-                startTime: new Date(),
-              }).toFixed(2)}/hr
+              ${getSpotRate(selectedSpot).toFixed(2)}/hr
             </Text>
 
             <TouchableOpacity
