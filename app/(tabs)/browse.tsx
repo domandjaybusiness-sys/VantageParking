@@ -289,13 +289,6 @@ export default function BrowseScreen() {
       </AnimatedListItem>
 
       <AnimatedListItem index={1} direction="down">
-        <View style={[styles.hero, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
-          <Text style={[styles.heroTitle, { color: colors.text }]}>Browse Spots</Text>
-          <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Search by area, compare prices, and confirm quickly.</Text>
-        </View>
-      </AnimatedListItem>
-
-      <AnimatedListItem index={2} direction="down">
         <View style={[styles.searchBox, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
           <TextInput
             value={searchText}
@@ -330,7 +323,7 @@ export default function BrowseScreen() {
         )}
       </AnimatedListItem>
 
-      <AnimatedListItem index={3} direction="down">
+      <AnimatedListItem index={2} direction="down">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
           {FILTERS.map((filter) => {
             const active = activeFilter === filter.id;
@@ -367,7 +360,7 @@ export default function BrowseScreen() {
         });
 
         return (
-          <AnimatedListItem key={spot.id} index={index + 4} direction="up">
+          <AnimatedListItem key={spot.id} index={index + 3} direction="up">
             <View style={[styles.card, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
               <View style={styles.cardTopRow}>
                 <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>{spot.title}</Text>
@@ -415,8 +408,11 @@ export default function BrowseScreen() {
                 <TouchableOpacity
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
                   onPress={() => {
-                    if (spot.latitude != null && spot.longitude != null) {
-                      router.push(`/map?lat=${spot.latitude}&lng=${spot.longitude}`);
+                    const effectiveLat = spot.latitude ?? geocodedCoords[spot.id]?.latitude;
+                    const effectiveLng = spot.longitude ?? geocodedCoords[spot.id]?.longitude;
+
+                    if (effectiveLat != null && effectiveLng != null) {
+                      router.push(`/map?lat=${effectiveLat}&lng=${effectiveLng}`);
                     } else {
                       router.push('/map');
                     }
@@ -458,7 +454,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   mapPreview: {
-    height: 170,
+    height: 235,
     width: '100%',
   },
   mapOverlayTag: {
@@ -474,20 +470,6 @@ const styles = StyleSheet.create({
   mapOverlayText: {
     fontSize: 12,
     fontWeight: '600',
-  },
-  hero: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 12,
-  },
-  heroTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  heroSubtitle: {
-    marginTop: 6,
-    fontSize: 14,
   },
   searchBox: {
     borderWidth: StyleSheet.hairlineWidth,
