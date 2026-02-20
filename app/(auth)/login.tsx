@@ -4,7 +4,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -23,11 +23,8 @@ export default function LoginScreen() {
     checkAppleAuth();
   }, []);
 
-  const handleGuest = async () => {
-    setLoading(true);
-    await setAuth('guest');
-    setLoading(false);
-    router.replace('/(tabs)');
+  const handleCreateAccount = () => {
+    router.push('/(auth)/signup');
   };
 
   const handleGoogle = async () => {
@@ -60,12 +57,8 @@ export default function LoginScreen() {
           '2. Configure OAuth Consent Screen\n' +
           '3. Set app to "Testing" mode\n' +
           '4. Add your email as a test user\n\n' +
-          'Or use "Continue as Guest" for now.\n\n' +
           `Error: ${error.message}`,
-          [
-            { text: 'Use Guest Mode', onPress: handleGuest },
-            { text: 'Cancel', style: 'cancel', onPress: () => setLoading(false) },
-          ]
+          [{ text: 'OK', style: 'cancel', onPress: () => setLoading(false) }]
         );
         return;
       }
@@ -127,11 +120,8 @@ export default function LoginScreen() {
       console.error('Google sign-in error:', error);
       Alert.alert(
         'Sign-In Error',
-        error.message || 'Failed to sign in with Google. Try "Continue as Guest" instead.',
-        [
-          { text: 'Use Guest Mode', onPress: handleGuest },
-          { text: 'OK', style: 'cancel', onPress: () => setLoading(false) },
-        ]
+        error.message || 'Failed to sign in with Google. Please try again.',
+        [{ text: 'OK', style: 'cancel', onPress: () => setLoading(false) }]
       );
     }
   };
@@ -205,7 +195,10 @@ export default function LoginScreen() {
           entering={FadeInDown.duration(600).delay(100)}
           style={styles.header}
         >
-          <Text style={styles.appTitle}>Vantage Parking</Text>
+          <View style={styles.logoContainer}>
+            <Text style={styles.logoIcon}>🚗</Text>
+          </View>
+          <Text style={styles.appTitle}>Vantage</Text>
           <Text style={styles.subtitle}>Find & reserve parking in seconds</Text>
         </Animated.View>
 
@@ -217,17 +210,13 @@ export default function LoginScreen() {
           <Pressable
             style={({ pressed }) => [
               styles.button,
-              styles.guestButton,
+              styles.createButton,
               pressed && styles.buttonPressed,
             ]}
-            onPress={handleGuest}
+            onPress={handleCreateAccount}
             disabled={loading}
           >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Continue as Guest</Text>
-            )}
+            <Text style={styles.buttonText}>Create account</Text>
           </Pressable>
 
           <Pressable
@@ -239,7 +228,7 @@ export default function LoginScreen() {
             onPress={handleGoogle}
             disabled={loading}
           >
-            <Text style={styles.googleButtonText}>🔵 Sign in with Google</Text>
+            <Text style={styles.googleButtonText}>Sign up with Google</Text>
           </Pressable>
 
           {appleAvailable && Platform.OS === 'ios' ? (
@@ -260,7 +249,7 @@ export default function LoginScreen() {
               onPress={handleApple}
               disabled={loading}
             >
-              <Text style={styles.buttonText}>🍎 Sign in with Apple</Text>
+              <Text style={styles.buttonText}>Sign up with Apple</Text>
             </Pressable>
           )}
 
@@ -289,11 +278,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 60,
   },
+  logoContainer: {
+    width: 80,
+    height: 80,
+    backgroundColor: '#fff',
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  logoIcon: {
+    fontSize: 40,
+  },
   appTitle: {
-    fontSize: 36,
+    fontSize: 42,
     fontWeight: '800',
     color: '#fff',
     marginBottom: 8,
+    letterSpacing: -1,
   },
   subtitle: {
     fontSize: 16,
@@ -315,7 +322,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     transform: [{ scale: 0.98 }],
   },
-  guestButton: {
+  createButton: {
     backgroundColor: '#10b981',
   },
   googleButton: {
@@ -331,7 +338,7 @@ const styles = StyleSheet.create({
     borderColor: '#333',
   },
   buttonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#fff',
   },

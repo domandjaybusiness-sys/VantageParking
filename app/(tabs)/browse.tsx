@@ -138,7 +138,10 @@ export default function BrowseScreen() {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      Alert.alert('Sign in required', 'Please log in to book a spot.');
+      Alert.alert('Sign in required', 'Please log in to book a spot.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Log In', onPress: () => router.push('/(auth)/login') },
+      ]);
       return;
     }
 

@@ -3,9 +3,10 @@ import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import { IconSymbol, IconSymbolName } from '@/components/ui/icon-symbol';
 import { useTheme } from '@/contexts/ThemeContext';
 import { clearAuth } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,14 +16,38 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [showSupportModal, setShowSupportModal] = useState(false);
   
-  // fake user data for UI layout; in a real app this would come from state/props
-  const user = {
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    rating: 4.9,
-    emailVerified: true,
-    phoneVerified: false,
-  };
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [phoneVerified] = useState(false);
+  const userRating = 4.9;
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setUserName('Signed out');
+        setUserEmail('');
+        setEmailVerified(false);
+        return;
+      }
+
+      const name =
+        user.user_metadata?.name ||
+        user.user_metadata?.full_name ||
+        user.email ||
+        'Vantage member';
+
+      setUserName(String(name));
+      setUserEmail(user.email ?? '');
+      setEmailVerified(Boolean(user.email_confirmed_at));
+    };
+
+    loadUser();
+  }, []);
 
   const handleMenuPress = (title: string) => {
     switch (title) {
@@ -63,7 +88,7 @@ export default function ProfileScreen() {
   };
 
   const handleEmailVerification = () => {
-    if (user.emailVerified) {
+    if (emailVerified) {
       Alert.alert('Email Verified', 'Your email is already verified');
     } else {
       // In production: call sendEmailVerification()
@@ -72,7 +97,7 @@ export default function ProfileScreen() {
   };
 
   const handlePhoneVerification = () => {
-    if (user.phoneVerified) {
+    if (phoneVerified) {
       Alert.alert('Phone Verified', 'Your phone is already verified');
     } else {
       // Navigate to phone verification screen
@@ -118,9 +143,11 @@ export default function ProfileScreen() {
       <AnimatedListItem index={0} direction="down">
         <View style={[styles.profileHeader, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
           <IconSymbol name="person.crop.circle" size={96} color={colors.text} />
-          <Text style={[styles.name, { color: colors.text }]}>{user.name}</Text>
-          <Text style={[styles.email, { color: colors.textSecondary }]}>{user.email}</Text>
-          <Text style={[styles.rating, { color: colors.primary }]}>{user.rating.toFixed(1)} ★</Text>
+          <Text style={[styles.name, { color: colors.text }]}>{userName}</Text>
+          {userEmail ? (
+            <Text style={[styles.email, { color: colors.textSecondary }]}>{userEmail}</Text>
+          ) : null}
+          <Text style={[styles.rating, { color: colors.primary }]}>{userRating.toFixed(1)} ★</Text>
         </View>
       </AnimatedListItem>
 
@@ -220,12 +247,12 @@ export default function ProfileScreen() {
             ]}
           >
             <IconSymbol 
-              name={user.emailVerified ? 'checkmark.circle.fill' : 'xmark.circle'} 
+              name={emailVerified ? 'checkmark.circle.fill' : 'xmark.circle'} 
               size={20} 
-              color={user.emailVerified ? '#10b981' : '#94a3b8'} 
+              color={emailVerified ? '#10b981' : '#94a3b8'} 
             />
             <Text style={{ color: colors.textSecondary, flex: 1 }}>Email</Text>
-            {!user.emailVerified && <Text style={{ color: colors.primary, fontSize: 14 }}>Verify</Text>}
+            {!emailVerified && <Text style={{ color: colors.primary, fontSize: 14 }}>Verify</Text>}
           </Pressable>
           
           <Pressable
@@ -235,12 +262,12 @@ export default function ProfileScreen() {
             ]}
           >
             <IconSymbol 
-              name={user.phoneVerified ? 'checkmark.circle.fill' : 'xmark.circle'} 
+              name={phoneVerified ? 'checkmark.circle.fill' : 'xmark.circle'} 
               size={20} 
-              color={user.phoneVerified ? colors.primary : colors.textSecondary} 
+              color={phoneVerified ? colors.primary : colors.textSecondary} 
             />
             <Text style={{ color: colors.textSecondary, flex: 1 }}>Phone</Text>
-            {!user.phoneVerified && <Text style={{ color: colors.primary, fontSize: 14 }}>Verify</Text>}
+            {!phoneVerified && <Text style={{ color: colors.primary, fontSize: 14 }}>Verify</Text>}
           </Pressable>
         </View>
 

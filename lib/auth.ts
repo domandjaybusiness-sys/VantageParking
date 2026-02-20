@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 
 const AUTH_KEY = '@vantage_auth';
 
-export type AuthMode = 'guest' | 'google' | 'apple' | null;
+export type AuthMode = 'guest' | 'google' | 'apple' | 'email' | null;
 
 export interface AuthState {
   mode: AuthMode;
