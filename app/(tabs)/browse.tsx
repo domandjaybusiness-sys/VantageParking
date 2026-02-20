@@ -32,8 +32,11 @@ export default function BrowseScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [spots, setSpots] = useState<Listing[]>([]);
+  const [geocodedCoords, setGeocodedCoords] = useState<Record<string, { latitude: number; longitude: number }>>({});
   const [searchText, setSearchText] = useState(params.location ? String(params.location) : '');
   const [activeFilter, setActiveFilter] = useState<FilterId>('all');
+  const [searchSuggestions, setSearchSuggestions] = useState<{ id: string; title: string; lat: number; lng: number }[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   useEffect(() => {
     const fetchSpots = async () => {
@@ -47,7 +50,31 @@ export default function BrowseScreen() {
         return;
       }
 
-      setSpots((data ?? []).map(mapSpotRow));
+      const mapped = (data ?? []).map(mapSpotRow);
+      setSpots(mapped);
+
+      // Client-side geocode for a few missing spots so thumbnails can show immediately
+      const missing = mapped.filter((s) => s.latitude == null || s.longitude == null);
+      const toGeocode = missing.slice(0, 8);
+      toGeocode.forEach(async (spot) => {
+        try {
+          const q = spot.address || spot.title || '';
+          if (!q) return;
+          const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=1&lang=en`;
+          const res = await fetch(url, { headers: { Accept: 'application/json' } });
+          if (!res.ok) return;
+          const json = await res.json();
+          const feat = json?.features?.[0];
+          const coords = feat?.geometry?.coordinates || [];
+          const lng = coords[0];
+          const lat = coords[1];
+          if (typeof lat === 'number' && typeof lng === 'number') {
+            setGeocodedCoords((prev) => ({ ...prev, [spot.id]: { latitude: lat, longitude: lng } }));
+          }
+        } catch {
+          // ignore
+        }
+      });
     };
 
     fetchSpots();
@@ -84,6 +111,64 @@ export default function BrowseScreen() {
       });
   }, [spots, searchText, activeFilter]);
 
+  useEffect(() => {
+    const trimmed = searchText.trim();
+
+    if (trimmed.length < 3) {
+      setSearchSuggestions([]);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(trimmed)}&limit=8&lang=en`;
+        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+        const json = await res.json();
+        const nextResults = (json.features || [])
+          .map((feature: any) => {
+            const props = feature.properties || {};
+            const coords = feature.geometry?.coordinates || [];
+            const lon = coords[0];
+            const lat = coords[1];
+            if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+
+            const country = String(props.countrycode || '').toLowerCase();
+            if (country && country !== 'us') return null;
+
+            const title = [
+              props.housenumber,
+              props.name || props.street,
+              props.city || props.town || props.village,
+              props.state,
+              props.postcode,
+            ].filter(Boolean).join(', ');
+
+            const scoreRaw = props.importance ?? props.osm_rank ?? 0;
+
+            return {
+              id: String(props.osm_id || `${lat},${lon}`),
+              title: title || props.name || props.city || 'Unknown location',
+              lat,
+              lng: lon,
+              score: Number(scoreRaw) || 0,
+            };
+          })
+          .filter(Boolean)
+          .sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0))
+          .map(({ id, title, lat, lng }: any) => ({ id, title, lat, lng }));
+
+        setSearchSuggestions(nextResults as { id: string; title: string; lat: number; lng: number }[]);
+      } catch {
+        setSearchSuggestions([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [searchText]);
+
   const mapPreviewCenter = useMemo(() => {
     if (params.lat && params.lng) {
       return {
@@ -93,13 +178,14 @@ export default function BrowseScreen() {
     }
 
     const source = visibleSpots.length > 0 ? visibleSpots : spots;
-    const firstWithCoords = source.find((spot) => spot.latitude != null && spot.longitude != null);
+    const firstWithCoords = source.find((spot) => (spot.latitude != null && spot.longitude != null) || (geocodedCoords[spot.id] != null));
 
-    if (firstWithCoords?.latitude != null && firstWithCoords?.longitude != null) {
-      return {
-        latitude: firstWithCoords.latitude,
-        longitude: firstWithCoords.longitude,
-      };
+    if (firstWithCoords) {
+      const lat = firstWithCoords.latitude ?? geocodedCoords[firstWithCoords.id]?.latitude;
+      const lng = firstWithCoords.longitude ?? geocodedCoords[firstWithCoords.id]?.longitude;
+      if (lat != null && lng != null) {
+        return { latitude: lat, longitude: lng };
+      }
     }
 
     return {
@@ -109,30 +195,7 @@ export default function BrowseScreen() {
   }, [visibleSpots, spots, params.lat, params.lng]);
 
   const onConfirmSpot = async (spot: Listing) => {
-    let start = new Date();
-    let end = new Date(start.getTime() + 60 * 60 * 1000);
-
-    if (params.date && params.startTime && params.endTime) {
-      const selectedDate = new Date(String(params.date));
-      const selectedStart = new Date(String(params.startTime));
-      const selectedEnd = new Date(String(params.endTime));
-
-      start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), selectedStart.getHours(), selectedStart.getMinutes());
-      end = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), selectedEnd.getHours(), selectedEnd.getMinutes());
-      
-      if (end <= start) {
-        end.setDate(end.getDate() + 1); // Handle overnight booking
-      }
-    }
-
-    const hours = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60)));
-
-    const rate = computeHourlyRate({
-      baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
-      address: spot.address,
-      startTime: start,
-    });
-
+    // Navigate to the Map screen and open the booking editor so user can pick date/time
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -145,40 +208,18 @@ export default function BrowseScreen() {
       return;
     }
 
-    const totalAmount = rate * hours * 1.12;
-    const { error } = await supabase.from('bookings').insert({
-      spot_id: spot.id,
-      spot_name: spot.title,
-      address: spot.address,
-      lat: spot.latitude ?? null,
-      lng: spot.longitude ?? null,
-      host_id: spot.hostId ?? null,
-      guest_id: user.id,
-      user_id: user.id,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      hours: hours,
-      price_per_hour: spot.pricePerHour ?? DEFAULT_BASE_RATE,
-      amount: totalAmount,
-      status: 'confirmed',
-      created_at: new Date().toISOString(),
-    });
-
-    if (error) {
-      Alert.alert('Booking failed', error.message || 'Unable to confirm this spot.');
-      return;
-    }
-
-    const dateLabel = start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    const timeLabel = `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-
-    Alert.alert('Spot confirmed', `${spot.title}\n${spot.address}\n${dateLabel} • ${timeLabel}`, [
-      {
-        text: 'View Reservation',
-        onPress: () => router.push('/reservations'),
+    router.push({
+      pathname: '/map',
+      params: {
+        lat: spot.latitude ?? undefined,
+        lng: spot.longitude ?? undefined,
+        spotId: spot.id,
+        openBooking: 'true',
+        date: params.date ?? undefined,
+        startTime: params.startTime ?? undefined,
+        endTime: params.endTime ?? undefined,
       },
-      { text: 'Done', style: 'cancel' },
-    ]);
+    });
   };
 
   return (
@@ -253,6 +294,29 @@ export default function BrowseScreen() {
             style={[styles.searchInput, { color: colors.text }]}
           />
         </View>
+        {searchSuggestions.length > 0 && (
+          <View style={[styles.suggestionsList, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+          >
+            {searchSuggestions.map((suggestion) => (
+              <TouchableOpacity
+                key={suggestion.id}
+                style={[styles.suggestionItem, { borderBottomColor: colors.border }]}
+                onPress={() => {
+                  setSearchText(suggestion.title);
+                  setSearchSuggestions([]);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.suggestionText, { color: colors.text }]} numberOfLines={2}>
+                  {suggestion.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        {searchLoading && (
+          <Text style={[styles.suggestionLoading, { color: colors.textSecondary }]}>Searching locations...</Text>
+        )}
       </AnimatedListItem>
 
       <AnimatedListItem index={3} direction="down">
@@ -299,33 +363,43 @@ export default function BrowseScreen() {
                 <Text style={[styles.price, { color: colors.primary }]}>${rate.toFixed(2)}/hr</Text>
               </View>
               <Text style={[styles.address, { color: colors.textSecondary }]} numberOfLines={2}>{spot.address}</Text>
-              {spot.latitude != null && spot.longitude != null ? (
-                <View style={[styles.miniMapContainer, { borderColor: colors.border }]}>
-                  <MapView
-                    pointerEvents="none"
-                    style={styles.miniMap}
-                    provider={PROVIDER_GOOGLE}
-                    initialRegion={{
-                      latitude: spot.latitude,
-                      longitude: spot.longitude,
-                      latitudeDelta: 0.015,
-                      longitudeDelta: 0.015,
-                    }}
-                    region={{
-                      latitude: spot.latitude,
-                      longitude: spot.longitude,
-                      latitudeDelta: 0.015,
-                      longitudeDelta: 0.015,
-                    }}
-                  >
-                    <Marker coordinate={{ latitude: spot.latitude, longitude: spot.longitude }} />
-                  </MapView>
-                </View>
-              ) : (
-                <View style={[styles.miniMapPlaceholder, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                  <Text style={[styles.miniMapText, { color: colors.textSecondary }]}>Location unavailable</Text>
-                </View>
-              )}
+              {
+                (() => {
+                  const effectiveLat = spot.latitude ?? geocodedCoords[spot.id]?.latitude;
+                  const effectiveLng = spot.longitude ?? geocodedCoords[spot.id]?.longitude;
+                  if (effectiveLat != null && effectiveLng != null) {
+                    return (
+                      <View style={[styles.miniMapContainer, { borderColor: colors.border }]}>
+                        <MapView
+                          pointerEvents="none"
+                          style={styles.miniMap}
+                          provider={PROVIDER_GOOGLE}
+                          initialRegion={{
+                            latitude: effectiveLat,
+                            longitude: effectiveLng,
+                            latitudeDelta: 0.015,
+                            longitudeDelta: 0.015,
+                          }}
+                          region={{
+                            latitude: effectiveLat,
+                            longitude: effectiveLng,
+                            latitudeDelta: 0.015,
+                            longitudeDelta: 0.015,
+                          }}
+                        >
+                          <Marker coordinate={{ latitude: effectiveLat, longitude: effectiveLng }} />
+                        </MapView>
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <View style={[styles.miniMapPlaceholder, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                      <Text style={[styles.miniMapText, { color: colors.textSecondary }]}>Location unavailable</Text>
+                    </View>
+                  );
+                })()
+              }
               <View style={styles.cardActions}>
                 <TouchableOpacity
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
@@ -413,6 +487,27 @@ const styles = StyleSheet.create({
   searchInput: {
     height: 46,
     fontSize: 15,
+  },
+  suggestionsList: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    marginTop: -4,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  suggestionText: {
+    fontSize: 13,
+  },
+  suggestionLoading: {
+    fontSize: 12,
+    marginTop: -6,
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   filterRow: {
     paddingVertical: 2,

@@ -15,44 +15,47 @@ import {
 } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
-export default function SignupScreen() {
+export default function EmailLoginScreen() {
   const router = useRouter();
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
 
-  const handleSignup = async () => {
+  const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing info', 'Please enter an email and password.');
+      Alert.alert('Missing info', 'Please enter your email and password.');
       return;
     }
 
     setLoading(true);
+    setNeedsConfirmation(false);
 
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password: password.trim(),
-      options: {
-        data: {
-          name: name.trim() || undefined,
-        },
-      },
     });
 
     if (error) {
+      const message = error.message || 'Unable to sign in.';
+      if (message.toLowerCase().includes('email not confirmed')) {
+        setNeedsConfirmation(true);
+        setLoading(false);
+        Alert.alert('Confirm your email', 'Please confirm your email to finish signing in.');
+        return;
+      }
       setLoading(false);
-      Alert.alert('Sign up failed', error.message || 'Unable to create your account.');
+      Alert.alert('Login failed', message);
       return;
     }
 
-    const sessionUser = data?.session?.user ?? data?.user;
+    const sessionUser = data?.user ?? data?.session?.user;
 
     if (sessionUser) {
       await setAuth('email', {
         userId: sessionUser.id,
         email: sessionUser.email,
-        name: name.trim() || sessionUser.user_metadata?.name || sessionUser.email,
+        name: sessionUser.user_metadata?.name || sessionUser.user_metadata?.full_name || sessionUser.email,
       });
       setLoading(false);
       router.replace('/(tabs)');
@@ -60,11 +63,49 @@ export default function SignupScreen() {
     }
 
     setLoading(false);
-    Alert.alert(
-      'Check your email',
-      'We sent you a confirmation link. Open it to finish creating your account.'
-    );
-    router.replace('/(auth)/login');
+    Alert.alert('Login failed', 'No active session found.');
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email.trim()) {
+      Alert.alert('Enter your email', 'Type your email first so we can resend the confirmation link.');
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim(),
+    });
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Resend failed', error.message || 'Unable to resend confirmation email.');
+      return;
+    }
+
+    Alert.alert('Check your email', 'We sent you a new confirmation link.');
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      Alert.alert('Enter your email', 'Type your email first so we can send a reset link.');
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'parkdemo://auth/callback',
+    });
+
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Reset failed', error.message || 'Unable to send reset email.');
+      return;
+    }
+
+    Alert.alert('Check your email', 'We sent you a password reset link.');
   };
 
   return (
@@ -77,24 +118,11 @@ export default function SignupScreen() {
           <View style={styles.logoContainer}>
             <Text style={styles.logoIcon}>🚗</Text>
           </View>
-          <Text style={styles.appTitle}>Create account</Text>
-          <Text style={styles.subtitle}>Reserve parking in seconds with Vantage.</Text>
+          <Text style={styles.appTitle}>Log in</Text>
+          <Text style={styles.subtitle}>Welcome back to Vantage.</Text>
         </Animated.View>
 
         <Animated.View entering={FadeInUp.duration(600).delay(250)} style={styles.form}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Your name"
-              placeholderTextColor="#64748b"
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-              returnKeyType="next"
-            />
-          </View>
-
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Email</Text>
             <TextInput
@@ -114,7 +142,7 @@ export default function SignupScreen() {
             <Text style={styles.label}>Password</Text>
             <TextInput
               style={styles.input}
-              placeholder="Create a password"
+              placeholder="Your password"
               placeholderTextColor="#64748b"
               value={password}
               onChangeText={setPassword}
@@ -125,18 +153,28 @@ export default function SignupScreen() {
 
           <Pressable
             style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-            onPress={handleSignup}
+            onPress={handleLogin}
             disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#0f172a" />
             ) : (
-              <Text style={styles.buttonText}>Create account</Text>
+              <Text style={styles.buttonText}>Log in</Text>
             )}
           </Pressable>
 
-          <Pressable onPress={() => router.replace('/(auth)/email-login')} disabled={loading}>
-            <Text style={styles.linkText}>Already have an account? Log in</Text>
+          {needsConfirmation ? (
+            <Pressable onPress={handleResendConfirmation} disabled={loading}>
+              <Text style={styles.secondaryLink}>Resend confirmation email</Text>
+            </Pressable>
+          ) : null}
+
+          <Pressable onPress={handleForgotPassword} disabled={loading}>
+            <Text style={styles.secondaryLink}>Forgot password?</Text>
+          </Pressable>
+
+          <Pressable onPress={() => router.replace('/(auth)/signup')} disabled={loading}>
+            <Text style={styles.linkText}>Need an account? Create one</Text>
           </Pressable>
         </Animated.View>
       </View>
@@ -231,6 +269,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#94a3b8',
     marginTop: 8,
+    fontSize: 13,
+  },
+  secondaryLink: {
+    textAlign: 'center',
+    color: '#38bdf8',
+    marginTop: 4,
     fontSize: 13,
   },
 });

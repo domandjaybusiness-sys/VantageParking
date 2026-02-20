@@ -109,6 +109,35 @@ export default function MapScreen() {
     }
 
     const mapped = (data ?? []).map(mapSpotRow);
+
+    // If some spots are missing lat/lng, try a free client-side geocode (Photon)
+    // This does NOT persist results to the DB; it only enables markers to display immediately.
+    const missing = mapped.filter((s) => s.latitude == null || s.longitude == null);
+    if (missing.length > 0) {
+      const toGeocode = missing.slice(0, 10); // limit per-load to be polite
+      await Promise.all(toGeocode.map(async (spot) => {
+        try {
+          const q = spot.address || spot.title || '';
+          if (!q) return;
+          const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=1&lang=en`;
+          const res = await fetch(url, { headers: { Accept: 'application/json' } });
+          if (!res.ok) return;
+          const json = await res.json();
+          const feat = json?.features?.[0];
+          const coords = feat?.geometry?.coordinates || [];
+          const lng = coords[0];
+          const lat = coords[1];
+          if (typeof lat === 'number' && typeof lng === 'number') {
+            spot.latitude = lat;
+            spot.longitude = lng;
+          }
+          // polite pause per request handled by Promise.all limit above
+        } catch (e) {
+          // ignore geocode failures; spot stays without coords
+        }
+      }));
+    }
+
     const withCoords = mapped.filter((spot) => spot.latitude != null && spot.longitude != null);
 
     if (searchLocation && radiusConfirmed) {
@@ -124,7 +153,8 @@ export default function MapScreen() {
         });
       setFilteredSpots(nearby);
     } else {
-      setFilteredSpots([]);
+      // Default to showing all spots until a radius search is confirmed.
+      setFilteredSpots(withCoords);
     }
   }, [searchLocation, radiusMiles, radiusConfirmed]);
 
@@ -141,6 +171,18 @@ export default function MapScreen() {
       supabase.removeChannel(channel);
     };
   }, [fetchSpots]);
+
+  // If arriving from Browse with openBooking and a spotId, pre-select that spot and open the booking editor
+  useEffect(() => {
+    if (params.openBooking === 'true' && params.spotId && filteredSpots.length > 0) {
+      const target = filteredSpots.find((s) => String(s.id) === String(params.spotId));
+      if (target) {
+        setSelectedSpot(target);
+        // call reserve flow so user can edit time/date and confirm
+        handleReserve(target);
+      }
+    }
+  }, [params.openBooking, params.spotId, filteredSpots, handleReserve]);
 
   const handleMarkerPress = (spot: Listing) => {
     setSelectedSpot(spot);
@@ -251,20 +293,12 @@ export default function MapScreen() {
 
     const { error } = await supabase.from('bookings').insert({
       spot_id: selectedSpot.id,
-      spot_name: selectedSpot.title,
-      address: selectedSpot.address,
-      lat: selectedSpot.latitude ?? null,
-      lng: selectedSpot.longitude ?? null,
-      host_id: selectedSpot.hostId ?? null,
-      guest_id: user.id,
       user_id: user.id,
       start_time: reservationStart.toISOString(),
       end_time: reservationEnd.toISOString(),
-      hours,
-      price_per_hour: selectedSpot.pricePerHour ?? DEFAULT_BASE_RATE,
-      amount: totalAmount,
       status: 'confirmed',
-      created_at: new Date().toISOString(),
+      amount: Math.round(totalAmount * 100) / 100,
+      price_per_hour: Math.round(rate * 100) / 100,
     });
 
     if (error) {
@@ -401,14 +435,19 @@ export default function MapScreen() {
               props.postcode,
             ].filter(Boolean).join(', ');
 
+            const scoreRaw = props.importance ?? props.osm_rank ?? 0;
+
             return {
               id: String(props.osm_id || `${lat},${lon}`),
               title: title || props.name || props.city || 'Unknown location',
               lat,
               lng: lon,
+              score: Number(scoreRaw) || 0,
             };
           })
-          .filter(Boolean);
+          .filter(Boolean)
+          .sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0))
+          .map(({ id, title, lat, lng }: any) => ({ id, title, lat, lng }));
 
         if (nextResults.length === 0) {
           setSearchError('No results found.');

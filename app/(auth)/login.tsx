@@ -23,6 +23,10 @@ export default function LoginScreen() {
     checkAppleAuth();
   }, []);
 
+  const handleSignIn = () => {
+    router.push('/(auth)/email-login');
+  };
+
   const handleCreateAccount = () => {
     router.push('/(auth)/signup');
   };
@@ -213,10 +217,10 @@ export default function LoginScreen() {
               styles.createButton,
               pressed && styles.buttonPressed,
             ]}
-            onPress={handleCreateAccount}
+            onPress={handleSignIn}
             disabled={loading}
           >
-            <Text style={styles.buttonText}>Create account</Text>
+            <Text style={styles.buttonText}>Sign in</Text>
           </Pressable>
 
           <Pressable
@@ -228,7 +232,7 @@ export default function LoginScreen() {
             onPress={handleGoogle}
             disabled={loading}
           >
-            <Text style={styles.googleButtonText}>Sign up with Google</Text>
+            <Text style={styles.googleButtonText}>Sign in with Google</Text>
           </Pressable>
 
           {appleAvailable && Platform.OS === 'ios' ? (
@@ -249,9 +253,21 @@ export default function LoginScreen() {
               onPress={handleApple}
               disabled={loading}
             >
-              <Text style={styles.buttonText}>Sign up with Apple</Text>
+              <Text style={styles.buttonText}>Sign in with Apple</Text>
             </Pressable>
           )}
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.button,
+              styles.secondaryButton,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={handleCreateAccount}
+            disabled={loading}
+          >
+            <Text style={styles.secondaryButtonText}>Create account</Text>
+          </Pressable>
 
           <Text style={styles.disclaimer}>
             {appleAvailable && Platform.OS === 'ios' 
@@ -325,6 +341,11 @@ const styles = StyleSheet.create({
   createButton: {
     backgroundColor: '#10b981',
   },
+  secondaryButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
   googleButton: {
     backgroundColor: '#fff',
   },
@@ -341,6 +362,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#e2e8f0',
   },
   googleButtonText: {
     fontSize: 16,
