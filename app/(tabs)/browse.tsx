@@ -233,6 +233,39 @@ export default function BrowseScreen() {
     });
   };
 
+  const resolveSpotCoordinates = async (spot: Listing) => {
+    const existingLat = spot.latitude ?? geocodedCoords[spot.id]?.latitude;
+    const existingLng = spot.longitude ?? geocodedCoords[spot.id]?.longitude;
+
+    if (existingLat != null && existingLng != null) {
+      return { lat: existingLat, lng: existingLng };
+    }
+
+    try {
+      const query = (spot.address || spot.title || '').trim();
+      if (!query) return null;
+
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1&lang=en`;
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) return null;
+
+      const json = await res.json();
+      const feature = json?.features?.[0];
+      const coords = feature?.geometry?.coordinates || [];
+      const lng = coords[0];
+      const lat = coords[1];
+
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        setGeocodedCoords((prev) => ({ ...prev, [spot.id]: { latitude: lat, longitude: lng } }));
+        return { lat, lng };
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -407,14 +440,31 @@ export default function BrowseScreen() {
               <View style={styles.cardActions}>
                 <TouchableOpacity
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
-                  onPress={() => {
-                    const effectiveLat = spot.latitude ?? geocodedCoords[spot.id]?.latitude;
-                    const effectiveLng = spot.longitude ?? geocodedCoords[spot.id]?.longitude;
+                  onPress={async () => {
+                    const resolved = await resolveSpotCoordinates(spot);
+                    const effectiveLat = resolved?.lat ?? spot.latitude ?? geocodedCoords[spot.id]?.latitude;
+                    const effectiveLng = resolved?.lng ?? spot.longitude ?? geocodedCoords[spot.id]?.longitude;
+                    const effectiveRate = computeHourlyRate({
+                      baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
+                      address: spot.address,
+                      startTime: new Date(),
+                    });
 
                     if (effectiveLat != null && effectiveLng != null) {
-                      router.push(`/map?lat=${effectiveLat}&lng=${effectiveLng}`);
+                      router.push({
+                        pathname: '/map',
+                        params: {
+                          lat: String(effectiveLat),
+                          lng: String(effectiveLng),
+                          spotId: spot.id,
+                          viewSpot: 'true',
+                          spotTitle: spot.title,
+                          spotAddress: spot.address,
+                          viewPrice: String(effectiveRate),
+                        },
+                      });
                     } else {
-                      router.push('/map');
+                      Alert.alert('Location unavailable', 'We could not find map coordinates for this spot yet.');
                     }
                   }}
                   activeOpacity={0.8}

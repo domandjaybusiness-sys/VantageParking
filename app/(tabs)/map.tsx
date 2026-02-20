@@ -76,9 +76,39 @@ export default function MapScreen() {
   const [activeField, setActiveField] = useState<'start' | 'end' | null>(null);
   const [filterMenuExpanded, setFilterMenuExpanded] = useState(false);
   const handledOpenBookingRef = useRef(false);
+  const handledViewSpotRef = useRef(false);
   const pricingReferenceTimeRef = useRef(new Date());
 
   const params = useLocalSearchParams();
+
+  const readSingleParam = (value: string | string[] | undefined) => {
+    if (Array.isArray(value)) return value[0];
+    return value;
+  };
+
+  const isViewSpot = useMemo(
+    () => readSingleParam(params.viewSpot as string | string[] | undefined) === 'true',
+    [params.viewSpot]
+  );
+
+  const focusCoordinate = useMemo(() => {
+    const latParam = readSingleParam(params.lat as string | string[] | undefined);
+    const lngParam = readSingleParam(params.lng as string | string[] | undefined);
+    if (!latParam || !lngParam) return null;
+
+    const lat = parseFloat(latParam);
+    const lng = parseFloat(lngParam);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  }, [params.lat, params.lng]);
+
+  const focusedSpotMeta = useMemo(() => {
+    const title = params.spotTitle ? decodeURIComponent(String(params.spotTitle)) : 'Selected spot';
+    const address = params.spotAddress ? decodeURIComponent(String(params.spotAddress)) : '';
+    const rawPrice = Number(params.viewPrice);
+    const price = Number.isFinite(rawPrice) ? rawPrice : null;
+    return { title, address, price };
+  }, [params.spotTitle, params.spotAddress, params.viewPrice]);
 
   // Handle opening search from external navigation
   useEffect(() => {
@@ -89,19 +119,23 @@ export default function MapScreen() {
 
   // Handle centering map on provided coordinates
   useEffect(() => {
-    if (params.lat && params.lng && mapRef) {
-      const lat = parseFloat(params.lat as string);
-      const lng = parseFloat(params.lng as string);
-      setSearchLocation({ lat, lng });
-      setRadiusConfirmed(true);
+    if (focusCoordinate && mapRef) {
+      if (isViewSpot) {
+        setSearchLocation(null);
+        setRadiusConfirmed(false);
+      } else {
+        setSearchLocation({ lat: focusCoordinate.lat, lng: focusCoordinate.lng });
+        setRadiusConfirmed(true);
+      }
+
       mapRef.animateToRegion({
-        latitude: lat,
-        longitude: lng,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
+        latitude: focusCoordinate.lat,
+        longitude: focusCoordinate.lng,
+        latitudeDelta: isViewSpot ? 0.012 : 0.05,
+        longitudeDelta: isViewSpot ? 0.012 : 0.05,
       }, 1000);
     }
-  }, [params.lat, params.lng, mapRef]);
+  }, [focusCoordinate, isViewSpot, mapRef]);
 
   const fetchSpots = useCallback(async () => {
     const { data, error } = await supabase.from('spots').select('*');
@@ -194,13 +228,50 @@ export default function MapScreen() {
     }
   }, [params.openBooking, params.spotId, filteredSpots]);
 
-  const handleMarkerPress = (spot: Listing) => {
+  useEffect(() => {
+    if (params.viewSpot !== 'true') {
+      handledViewSpotRef.current = false;
+      return;
+    }
+
+    if (handledViewSpotRef.current) return;
+    if (!params.spotId) return;
+
+    const target = getFocusedSpotForReserve();
+    if (!target) return;
+
+    handledViewSpotRef.current = true;
+    handleMarkerPress(target);
+  }, [getFocusedSpotForReserve, handleMarkerPress, params.spotId, params.viewSpot, slideAnim]);
+
+  function handleMarkerPress(spot: Listing) {
     setSelectedSpot(spot);
     Animated.spring(slideAnim, {
       toValue: 0,
       useNativeDriver: true,
     }).start();
-  };
+  }
+
+  function getFocusedSpotForReserve(): Listing | null {
+    if (!isViewSpot || !focusCoordinate) return null;
+
+    const spotId = readSingleParam(params.spotId as string | string[] | undefined);
+    if (!spotId) return null;
+
+    const existing = filteredSpots.find((s) => String(s.id) === String(spotId));
+    if (existing) return existing;
+
+    return {
+      id: String(spotId),
+      title: focusedSpotMeta.title || 'Parking Spot',
+      address: focusedSpotMeta.address || 'Address unavailable',
+      latitude: focusCoordinate.lat,
+      longitude: focusCoordinate.lng,
+      pricePerHour: focusedSpotMeta.price ?? DEFAULT_BASE_RATE,
+      status: 'Active',
+      spots: 1,
+    };
+  }
 
   const handleCardClose = () => {
     Animated.timing(slideAnim, {
@@ -416,24 +487,10 @@ export default function MapScreen() {
     const dateLabel = reservationStart.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     const timeLabel = `${reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 
-    Alert.alert('Spot confirmed', `${selectedSpot.title}\n${selectedSpot.address}\n${dateLabel} • ${timeLabel}`, [
-      {
-        text: 'View Reservation',
-        onPress: () => {
-          setPaymentModalVisible(false);
-          handleCardClose();
-          router.push('/reservations');
-        },
-      },
-      { 
-        text: 'Done', 
-        style: 'cancel',
-        onPress: () => {
-          setPaymentModalVisible(false);
-          handleCardClose();
-        }
-      },
-    ]);
+    Alert.alert('Spot confirmed', `${selectedSpot.title}\n${selectedSpot.address}\n${dateLabel} • ${timeLabel}`);
+    setPaymentModalVisible(false);
+    handleCardClose();
+    router.push('/reservations');
   };
 
   const handleRegionChange = (region: any) => {
@@ -606,6 +663,25 @@ export default function MapScreen() {
         }}
         onRegionChangeComplete={handleRegionChange}
       >
+          {isViewSpot && focusCoordinate && (
+            <Marker
+              coordinate={{ latitude: focusCoordinate.lat, longitude: focusCoordinate.lng }}
+              tracksViewChanges={false}
+              tracksInfoWindowChanges={false}
+              zIndex={999}
+              onPress={() => {
+                const target = getFocusedSpotForReserve();
+                if (target) handleMarkerPress(target);
+              }}
+            >
+              <View style={[styles.focusPricePill, { backgroundColor: colors.primary }]}>
+                <Text style={styles.focusPricePillText}>
+                  {focusedSpotMeta.price != null ? `$${focusedSpotMeta.price.toFixed(0)}` : 'Spot'}
+                </Text>
+              </View>
+            </Marker>
+          )}
+
           {searchLocation && radiusConfirmed && (
             <Circle
               center={{ latitude: searchLocation.lat, longitude: searchLocation.lng }}
@@ -655,6 +731,25 @@ export default function MapScreen() {
           {searchBarLabel}
         </Text>
       </TouchableOpacity>
+
+      {isViewSpot && focusCoordinate && (
+        <View
+          style={[
+            styles.focusBanner,
+            {
+              top: insets.top + SPACING.md + 54,
+              backgroundColor: colors.backgroundCard,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <Text style={[styles.focusBannerText, { color: colors.text }]} numberOfLines={1}>
+            {focusedSpotMeta.price != null
+              ? `Viewing: ${focusedSpotMeta.title} • $${focusedSpotMeta.price.toFixed(2)}/hr`
+              : `Viewing: ${focusedSpotMeta.title}`}
+          </Text>
+        </View>
+      )}
 
       {/* Clear Location */}
       <TouchableOpacity
@@ -1099,6 +1194,20 @@ const styles = StyleSheet.create({
   searchBarText: {
     fontSize: 16,
   },
+  focusBanner: {
+    position: 'absolute',
+    left: SPACING.md,
+    right: SPACING.md,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    zIndex: 10,
+  },
+  focusBannerText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
 
   clearButton: {
     position: 'absolute',
@@ -1395,6 +1504,29 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '700',
     fontSize: 14,
+  },
+  focusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#ffffff66',
+  },
+  focusPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  focusPricePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#ffffff66',
+  },
+  focusPricePillText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
 
   // List View Overlay
