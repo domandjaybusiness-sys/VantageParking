@@ -7,23 +7,23 @@ import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
+  import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function HostScreen() {
   const router = useRouter();
-  const { colorScheme, colors } = useTheme();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [listings, setListings] = useState<Listing[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
   const [hostId, setHostId] = useState<string | null>(null);
-  const [loadingListings, setLoadingListings] = useState(true);
-  const [loadingBookings, setLoadingBookings] = useState(true);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [showEarnings, setShowEarnings] = useState(false);
   const [earningsTab, setEarningsTab] = useState<'week' | 'month'>('week');
@@ -39,7 +39,6 @@ export default function HostScreen() {
   }, []);
 
   const fetchListings = useCallback(async (userId: string) => {
-    setLoadingListings(true);
     const { data, error } = await supabase
       .from('spots')
       .select('*')
@@ -48,16 +47,13 @@ export default function HostScreen() {
 
     if (error) {
       setListings([]);
-      setLoadingListings(false);
       return;
     }
 
     setListings((data ?? []).map(mapSpotRow));
-    setLoadingListings(false);
   }, []);
 
   const fetchBookings = useCallback(async (userId: string) => {
-    setLoadingBookings(true);
     const { data, error } = await supabase
       .from('bookings')
       .select('*')
@@ -66,12 +62,10 @@ export default function HostScreen() {
 
     if (error) {
       setBookings([]);
-      setLoadingBookings(false);
       return;
     }
 
     setBookings(data ?? []);
-    setLoadingBookings(false);
   }, []);
 
   useEffect(() => {
@@ -223,7 +217,10 @@ export default function HostScreen() {
   };
   
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: 24 }}
+    >
       {/* Stats Dashboard */}
       <View style={styles.statsContainer}>
         <TouchableOpacity 
@@ -264,7 +261,7 @@ export default function HostScreen() {
         >
           <View style={styles.earningsHeader}>
             <View>
-              <Text style={[styles.todayLabel, { color: colors.textSecondary }]}>Today's Earnings</Text>
+              <Text style={[styles.todayLabel, { color: colors.textSecondary }]}>Today&apos;s Earnings</Text>
               <Text style={[styles.todayAmount, { color: colors.text }]}>${todayEarnings.toFixed(2)}</Text>
             </View>
             <TouchableOpacity 
@@ -889,12 +886,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   statValue: {
     fontSize: 24,
@@ -910,9 +902,9 @@ const styles = StyleSheet.create({
   todayEarningsCard: {
     marginHorizontal: 16,
     marginBottom: 16,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 20,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   earningsHeader: {
     flexDirection: 'row',
@@ -961,9 +953,9 @@ const styles = StyleSheet.create({
   activeBookingCard: {
     marginHorizontal: 16,
     marginBottom: 16,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 20,
-    borderWidth: 2,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   activeBookingHeader: {
     flexDirection: 'row',
@@ -1058,12 +1050,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderRadius: 12,
     padding: 16,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   bookingCardHeader: {
     flexDirection: 'row',
@@ -1106,15 +1093,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: 16,
     marginHorizontal: 16,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
   },
   listingThumb: {
     width: 64,
@@ -1314,7 +1296,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 12,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   breakdownDate: {
     fontSize: 14,

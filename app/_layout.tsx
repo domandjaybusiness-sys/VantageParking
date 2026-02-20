@@ -29,7 +29,7 @@ function RootNavigator() {
     }
     
     checkAuth();
-  }, [segments]);
+  }, [navigationState?.key, router, segments]);
 
   return (
     <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

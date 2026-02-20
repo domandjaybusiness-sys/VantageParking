@@ -27,23 +27,23 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="map"
+        name="browse"
         options={{
-          title: 'Map',
+          title: 'Browse',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="map.fill" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="bookings"
+        name="reservations"
         options={{
-          title: 'Bookings',
+          title: 'Reservations',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
         }}
       />
       <Tabs.Screen
         name="host"
         options={{
-          title: 'Earn',
+          title: 'Host',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="square.and.pencil" color={color} />,
         }}
       />
@@ -52,6 +52,18 @@ export default function TabLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.crop.circle" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="map"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="bookings"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen

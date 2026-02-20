@@ -1,0 +1,250 @@
+import { AnimatedListItem } from '@/components/ui/animated-list-item';
+import { useTheme } from '@/contexts/ThemeContext';
+import { supabase } from '@/lib/supabase';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+type ReservationItem = {
+  id: string;
+  spotName: string;
+  address: string;
+  dateLabel: string;
+  timeLabel: string;
+  totalPrice: number;
+  status: string;
+  startTime: Date;
+  endTime: Date;
+  latitude?: number | null;
+  longitude?: number | null;
+};
+
+export default function ReservationsScreen() {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [reservations, setReservations] = useState<ReservationItem[]>([]);
+
+  useEffect(() => {
+    const fetchReservations = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setReservations([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .or(`guest_id.eq.${user.id},user_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        setReservations([]);
+        return;
+      }
+
+      const now = Date.now();
+      const mapped = (data ?? []).map((row: any) => {
+        const startRaw = row?.start_time ?? row?.startTime ?? row?.date ?? row?.created_at;
+        const endRaw = row?.end_time ?? row?.endTime;
+        const start = startRaw ? new Date(startRaw) : new Date();
+        const end = endRaw ? new Date(endRaw) : new Date(start.getTime() + 60 * 60 * 1000);
+        const status = String(row?.status ?? 'Pending');
+        const statusLower = status.toLowerCase();
+        const isPast = ['paid', 'completed', 'cancelled'].includes(statusLower) || end.getTime() < now;
+        const latRaw = row?.lat ?? row?.latitude ?? row?.spot_lat ?? row?.spotLat ?? null;
+        const lngRaw = row?.lng ?? row?.longitude ?? row?.spot_lng ?? row?.spotLng ?? null;
+        const lat = typeof latRaw === 'number' ? latRaw : (typeof latRaw === 'string' ? parseFloat(latRaw) : null);
+        const lng = typeof lngRaw === 'number' ? lngRaw : (typeof lngRaw === 'string' ? parseFloat(lngRaw) : null);
+
+        return {
+          id: String(row?.id ?? ''),
+          spotName: row?.spot_name ?? row?.spot_title ?? row?.spotName ?? row?.address ?? 'Parking Spot',
+          address: row?.address ?? 'Address unavailable',
+          dateLabel: start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          timeLabel: `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+          totalPrice: Number(row?.amount ?? row?.total ?? 0),
+          status,
+          startTime: start,
+          endTime: end,
+          latitude: Number.isFinite(lat) ? lat : null,
+          longitude: Number.isFinite(lng) ? lng : null,
+          isPast,
+        };
+      });
+
+      const upcoming = mapped
+        .filter((r) => !r.isPast)
+        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+
+      setReservations(upcoming);
+    };
+
+    fetchReservations();
+
+    const channel = supabase
+      .channel('reservations-guest')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        fetchReservations();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const upcomingCount = useMemo(() => reservations.length, [reservations]);
+
+  return (
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + 8 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: colors.text }]}>Reservations</Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{upcomingCount} upcoming</Text>
+      </View>
+
+      {reservations.map((reservation, index) => (
+        <AnimatedListItem key={reservation.id} index={index} direction="up">
+          <View style={[styles.card, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
+            <View style={styles.cardTopRow}>
+              <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
+                {reservation.spotName}
+              </Text>
+              <Text style={[styles.price, { color: colors.primary }]}>
+                ${reservation.totalPrice.toFixed(2)}
+              </Text>
+            </View>
+            <Text style={[styles.address, { color: colors.textSecondary }]} numberOfLines={1}>
+              {reservation.address}
+            </Text>
+            <View style={styles.metaRow}>
+              <Text style={[styles.metaText, { color: colors.text }]}>{reservation.dateLabel}</Text>
+              <Text style={[styles.metaDivider, { color: colors.textSecondary }]}>•</Text>
+              <Text style={[styles.metaText, { color: colors.text }]}>{reservation.timeLabel}</Text>
+            </View>
+            <Text style={[styles.status, { color: colors.textSecondary }]}>Status: {reservation.status}</Text>
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.mapButton, { borderColor: colors.border, backgroundColor: colors.background }]}
+                onPress={() => {
+                  if (reservation.latitude != null && reservation.longitude != null) {
+                    router.push(`/map?lat=${reservation.latitude}&lng=${reservation.longitude}`);
+                  } else {
+                    router.push('/map');
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.mapButtonText, { color: colors.text }]}>View on Map</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </AnimatedListItem>
+      ))}
+
+      {reservations.length === 0 && (
+        <View style={[styles.empty, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+        >
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>No upcoming reservations</Text>
+          <Text style={[styles.emptySub, { color: colors.textSecondary }]}>Book a spot and it will show here.</Text>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  content: { padding: 16, paddingBottom: 28 },
+  header: {
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 13,
+  },
+  card: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 10,
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  cardTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  price: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  address: {
+    fontSize: 13,
+    marginTop: 6,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  metaText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  metaDivider: {
+    marginHorizontal: 6,
+    fontSize: 12,
+  },
+  status: {
+    marginTop: 8,
+    fontSize: 12,
+  },
+  actionRow: {
+    marginTop: 12,
+  },
+  mapButton: {
+    alignSelf: 'flex-start',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  mapButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  empty: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 18,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  emptySub: {
+    marginTop: 4,
+    fontSize: 13,
+  },
+});

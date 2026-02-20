@@ -48,7 +48,7 @@ export default function AuthCallback() {
     }
 
     handleCallback();
-  }, []);
+  }, [router]);
 
   return (
     <View style={styles.container}>

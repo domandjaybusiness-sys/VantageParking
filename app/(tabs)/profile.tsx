@@ -7,10 +7,12 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { colorScheme, themePreference, setThemePreference, colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [showSupportModal, setShowSupportModal] = useState(false);
   
   // fake user data for UI layout; in a real app this would come from state/props
@@ -28,7 +30,7 @@ export default function ProfileScreen() {
         router.push('/wallet');
         break;
       case 'Parking History':
-        router.push('/bookings');
+        router.push('/host');
         break;
       case 'Settings':
         router.push('/settings');
@@ -109,13 +111,16 @@ export default function ProfileScreen() {
   ];
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ flexGrow: 1 }}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + 8 }}
+    >
       <AnimatedListItem index={0} direction="down">
-        <View style={[styles.profileHeader, { backgroundColor: colorScheme === 'dark' ? '#1f2937' : '#e5e7eb' }]}>
-          <IconSymbol name="person.crop.circle" size={96} color={colorScheme === 'dark' ? 'white' : '#1f2937'} />
+        <View style={[styles.profileHeader, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
+          <IconSymbol name="person.crop.circle" size={96} color={colors.text} />
           <Text style={[styles.name, { color: colors.text }]}>{user.name}</Text>
           <Text style={[styles.email, { color: colors.textSecondary }]}>{user.email}</Text>
-          <Text style={styles.rating}>{user.rating.toFixed(1)} ★</Text>
+          <Text style={[styles.rating, { color: colors.primary }]}>{user.rating.toFixed(1)} ★</Text>
         </View>
       </AnimatedListItem>
 
@@ -123,7 +128,7 @@ export default function ProfileScreen() {
       <View style={styles.themeSection}>
         <AnimatedListItem index={1} direction="up">
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Appearance</Text>
-          <View style={[styles.themeCard, { backgroundColor: colors.backgroundCard }]}>
+          <View style={[styles.themeCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
             <TouchableOpacity
               style={[
                 styles.themeOption,
@@ -193,7 +198,7 @@ export default function ProfileScreen() {
         {menuItems.map((item, index) => (
           <AnimatedListItem key={item.title} index={index + 2} direction="up">
             <AnimatedPressableButton
-              style={[styles.menuItem, { backgroundColor: colors.backgroundCard }]}
+              style={[styles.menuItem, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
               onPress={() => handleMenuPress(item.title)}
             >
               <IconSymbol name={item.icon} size={20} color={colors.textSecondary} />
@@ -276,39 +281,39 @@ export default function ProfileScreen() {
           style={styles.modalBackdrop} 
           onPress={() => setShowSupportModal(false)}
         >
-          <View style={styles.supportModal}>
-            <Text style={styles.supportModalTitle}>Contact Support</Text>
-            <Text style={styles.supportModalSubtitle}>How would you like to reach us?</Text>
+          <View style={[styles.supportModal, { backgroundColor: colors.backgroundCard }]}>
+            <Text style={[styles.supportModalTitle, { color: colors.text }]}>Contact Support</Text>
+            <Text style={[styles.supportModalSubtitle, { color: colors.textSecondary }]}>How would you like to reach us?</Text>
             
             <TouchableOpacity
-              style={styles.supportOption}
+              style={[styles.supportOption, { backgroundColor: colors.background, borderColor: colors.border }]}
               onPress={() => handleSupportOption('email')}
             >
-              <IconSymbol name="envelope" size={24} color="#10b981" />
+              <IconSymbol name="envelope" size={24} color={colors.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.supportOptionTitle}>Email</Text>
-                <Text style={styles.supportOptionSubtitle}>support@vantageparking.com</Text>
+                <Text style={[styles.supportOptionTitle, { color: colors.text }]}>Email</Text>
+                <Text style={[styles.supportOptionSubtitle, { color: colors.textSecondary }]}>support@vantageparking.com</Text>
               </View>
-              <Text style={styles.supportOptionArrow}>›</Text>
+              <Text style={[styles.supportOptionArrow, { color: colors.textSecondary }]}>›</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.supportOption}
+              style={[styles.supportOption, { backgroundColor: colors.background, borderColor: colors.border }]}
               onPress={() => handleSupportOption('phone')}
             >
-              <IconSymbol name="phone" size={24} color="#10b981" />
+              <IconSymbol name="phone" size={24} color={colors.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.supportOptionTitle}>Phone</Text>
-                <Text style={styles.supportOptionSubtitle}>1-800-555-1234</Text>
+                <Text style={[styles.supportOptionTitle, { color: colors.text }]}>Phone</Text>
+                <Text style={[styles.supportOptionSubtitle, { color: colors.textSecondary }]}>1-800-555-1234</Text>
               </View>
-              <Text style={styles.supportOptionArrow}>›</Text>
+              <Text style={[styles.supportOptionArrow, { color: colors.textSecondary }]}>›</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.supportCancelButton}
+              style={[styles.supportCancelButton, { backgroundColor: colors.background, borderColor: colors.border }]}
               onPress={() => setShowSupportModal(false)}
             >
-              <Text style={styles.supportCancelText}>Cancel</Text>
+              <Text style={[styles.supportCancelText, { color: colors.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -323,6 +328,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 32,
     alignItems: 'center',
+    margin: 16,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   name: { fontSize: 22, fontWeight: '700', marginTop: 8 },
   email: { fontSize: 14, marginTop: 2 },
@@ -341,6 +349,7 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 12,
     gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   themeOption: {
     flex: 1,
@@ -372,7 +381,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginHorizontal: 16,
     marginBottom: 8,
-    borderRadius: 8,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   menuItemPressed: {
     opacity: 0.7,
@@ -392,7 +402,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   supportModal: {
-    backgroundColor: '#1f2937',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 24,
@@ -401,46 +410,40 @@ const styles = StyleSheet.create({
   supportModalTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: 'white',
   },
   supportModalSubtitle: {
     fontSize: 14,
-    color: '#94a3b8',
     marginBottom: 8,
   },
   supportOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0f172a',
     padding: 16,
     borderRadius: 12,
     gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   supportOptionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: 'white',
   },
   supportOptionSubtitle: {
     fontSize: 14,
-    color: '#94a3b8',
     marginTop: 2,
   },
   supportOptionArrow: {
     fontSize: 24,
-    color: '#94a3b8',
     fontWeight: '300',
   },
   supportCancelButton: {
-    backgroundColor: '#0f172a',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 8,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   supportCancelText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#94a3b8',
   },
 });

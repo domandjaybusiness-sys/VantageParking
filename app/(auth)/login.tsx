@@ -83,8 +83,6 @@ export default function LoginScreen() {
 
         if (result.type === 'success') {
           // Extract the session from the URL
-          const url = result.url;
-          
           // Wait a moment for Supabase to process the session
           await new Promise(resolve => setTimeout(resolve, 1000));
           

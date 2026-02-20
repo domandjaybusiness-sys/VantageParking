@@ -4,13 +4,13 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { supabase } from '@/lib/supabase';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 
 type BookingItem = {
@@ -38,7 +38,6 @@ export default function BookingsScreen() {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(null);
   const [bookings, setBookings] = useState<BookingItem[]>([]);
-  const [loadingBookings, setLoadingBookings] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Update timer every minute
@@ -51,14 +50,12 @@ export default function BookingsScreen() {
 
   useEffect(() => {
     const fetchBookings = async () => {
-      setLoadingBookings(true);
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (!user) {
         setBookings([]);
-        setLoadingBookings(false);
         return;
       }
 
@@ -70,7 +67,6 @@ export default function BookingsScreen() {
 
       if (error) {
         setBookings([]);
-        setLoadingBookings(false);
         return;
       }
 
@@ -108,7 +104,6 @@ export default function BookingsScreen() {
       });
 
       setBookings(mapped);
-      setLoadingBookings(false);
     };
 
     fetchBookings();

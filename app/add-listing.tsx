@@ -126,7 +126,7 @@ export default function AddListingScreen() {
               const lon = parseFloat(first.lon ?? first.longitude ?? first.lon);
               if (!Number.isNaN(lat) && !Number.isNaN(lon)) return { lat, lon, usedQuery: q };
             }
-          } catch (e) {
+          } catch {
             // ignore and try next
           }
         }
@@ -218,7 +218,7 @@ export default function AddListingScreen() {
         if (data && data[0]) {
           return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), usedQuery: q };
         }
-      } catch (e) {
+      } catch {
         // try next
       }
     }

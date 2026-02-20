@@ -4,7 +4,7 @@ import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, Modal, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, FlatList, Modal, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -51,7 +51,6 @@ export default function MapScreen() {
   const [filteredSpots, setFilteredSpots] = useState<Listing[]>([]);
   const [selectedSpot, setSelectedSpot] = useState<Listing | null>(null);
   const [slideAnim] = useState(new Animated.Value(300));
-  const [zoomLevel, setZoomLevel] = useState(1);
   const [searchActive, setSearchActive] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [mapPickLoading, setMapPickLoading] = useState(false);
@@ -201,9 +200,59 @@ export default function MapScreen() {
     setPaymentModalVisible(true);
   };
 
+  const handlePayment = async () => {
+    if (!selectedSpot || !reservationStart || !reservationEnd) {
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      Alert.alert('Sign in required', 'Please log in to book a spot.');
+      return;
+    }
+
+    const hours = Math.max(1, (reservationEnd.getTime() - reservationStart.getTime()) / 3600000);
+    const rate = computeHourlyRate({
+      baseRate: selectedSpot.pricePerHour ?? DEFAULT_BASE_RATE,
+      address: selectedSpot.address,
+      startTime: reservationStart,
+    });
+    const baseAmount = reservationTotal > 0 ? reservationTotal : rate * hours;
+    const totalAmount = baseAmount * 1.12;
+
+    const { error } = await supabase.from('bookings').insert({
+      spot_id: selectedSpot.id,
+      spot_name: selectedSpot.title,
+      address: selectedSpot.address,
+      lat: selectedSpot.latitude ?? null,
+      lng: selectedSpot.longitude ?? null,
+      host_id: selectedSpot.hostId ?? null,
+      guest_id: user.id,
+      user_id: user.id,
+      start_time: reservationStart.toISOString(),
+      end_time: reservationEnd.toISOString(),
+      hours,
+      price_per_hour: selectedSpot.pricePerHour ?? DEFAULT_BASE_RATE,
+      amount: totalAmount,
+      status: 'confirmed',
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      Alert.alert('Booking failed', error.message || 'Unable to create reservation.');
+      return;
+    }
+
+    Alert.alert('Reserved', 'Your reservation is confirmed.');
+    setPaymentModalVisible(false);
+    handleCardClose();
+  };
+
   const handleRegionChange = (region: any) => {
-    const zoom = Math.log2(360 / region.latitudeDelta);
-    setZoomLevel(Math.max(1, Math.min(zoom / 5, 3)));
+    void region;
   };
 
   const handleSearch = (location: { title: string; lat: number; lng: number }) => {
@@ -252,7 +301,7 @@ export default function MapScreen() {
       const feature = json?.features?.[0];
       const label = buildAddressLabel(feature?.properties);
       setSearchText(label || `Dropped pin (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
-    } catch (error) {
+    } catch {
       setSearchText(`Dropped pin (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
     } finally {
       setMapPickLoading(false);
@@ -324,7 +373,7 @@ export default function MapScreen() {
         }
 
         setSearchResults(nextResults as { id: string; title: string; lat: number; lng: number }[]);
-      } catch (error) {
+      } catch {
         setSearchError('Network error while searching.');
         setSearchResults([]);
       } finally {
@@ -385,6 +434,10 @@ export default function MapScreen() {
     <View
       style={[styles.container, { backgroundColor: colors.background }]}
     >
+      <View
+        pointerEvents="none"
+        style={[styles.topSafeArea, { height: insets.top, backgroundColor: colors.background }]}
+      />
       <MapView
         ref={setMapRef}
         style={styles.map}
@@ -891,9 +944,7 @@ export default function MapScreen() {
               <TouchableOpacity
                 style={[styles.paymentButton, { backgroundColor: colors.primary }]}
                 onPress={() => {
-                  alert('Payment successful');
-                  setPaymentModalVisible(false);
-                  handleCardClose();
+                  handlePayment();
                 }}
                 activeOpacity={0.8}
               >
@@ -918,6 +969,13 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  topSafeArea: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
@@ -1250,9 +1308,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   pricePillSelected: {
     borderWidth: 3,
@@ -1280,9 +1338,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   listCardContent: {
     flex: 1,
@@ -1313,9 +1371,9 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.md,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 10,
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 6,
   },
   cardHandle: {
     width: 40,
