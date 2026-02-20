@@ -15,7 +15,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-  import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function HostScreen() {
   const router = useRouter();

@@ -16,7 +16,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-  import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -163,7 +163,7 @@ export default function HomeScreen() {
             style={[styles.actionCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push('/browse');
+              router.push('/search');
             }}
             activeOpacity={0.85}
           >

@@ -2,7 +2,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { Listing, mapSpotRow } from '@/lib/listings';
 import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, FlatList, Modal, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -48,6 +48,7 @@ const RADIUS_OPTIONS = [0.5, 1, 3, 5, 10, 25];
 export default function MapScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [filteredSpots, setFilteredSpots] = useState<Listing[]>([]);
   const [selectedSpot, setSelectedSpot] = useState<Listing | null>(null);
   const [slideAnim] = useState(new Animated.Value(300));
@@ -89,6 +90,8 @@ export default function MapScreen() {
       const lat = parseFloat(params.lat as string);
       const lng = parseFloat(params.lng as string);
       setSearchLocation({ lat, lng });
+      setRadiusConfirmed(true);
+      setPinEnabled(false);
       mapRef.animateToRegion({
         latitude: lat,
         longitude: lng,
@@ -187,16 +190,33 @@ export default function MapScreen() {
   ).current;
 
   const handleReserve = (spot: Listing) => {
+    let start = new Date();
+    let end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hour
+
+    if (params.date && params.startTime && params.endTime) {
+      const selectedDate = new Date(String(params.date));
+      const selectedStart = new Date(String(params.startTime));
+      const selectedEnd = new Date(String(params.endTime));
+
+      start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), selectedStart.getHours(), selectedStart.getMinutes());
+      end = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), selectedEnd.getHours(), selectedEnd.getMinutes());
+      
+      if (end <= start) {
+        end.setDate(end.getDate() + 1); // Handle overnight booking
+      }
+    }
+
+    const hours = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60)));
+
     const computedRate = computeHourlyRate({
       baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
       address: spot.address,
-      startTime: new Date(),
+      startTime: start,
     });
-    const start = new Date();
-    const end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hour
+
     setReservationStart(start);
     setReservationEnd(end);
-    setReservationTotal(computedRate * 1); // 1 hour by default
+    setReservationTotal(computedRate * hours);
     setPaymentModalVisible(true);
   };
 
@@ -246,9 +266,27 @@ export default function MapScreen() {
       return;
     }
 
-    Alert.alert('Reserved', 'Your reservation is confirmed.');
-    setPaymentModalVisible(false);
-    handleCardClose();
+    const dateLabel = reservationStart.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    const timeLabel = `${reservationStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+    Alert.alert('Spot confirmed', `${selectedSpot.title}\n${selectedSpot.address}\n${dateLabel} • ${timeLabel}`, [
+      {
+        text: 'View Reservation',
+        onPress: () => {
+          setPaymentModalVisible(false);
+          handleCardClose();
+          router.push('/reservations');
+        },
+      },
+      { 
+        text: 'Done', 
+        style: 'cancel',
+        onPress: () => {
+          setPaymentModalVisible(false);
+          handleCardClose();
+        }
+      },
+    ]);
   };
 
   const handleRegionChange = (region: any) => {

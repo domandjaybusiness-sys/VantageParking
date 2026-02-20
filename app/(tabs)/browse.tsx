@@ -3,7 +3,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { Listing, mapSpotRow } from '@/lib/listings';
 import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
@@ -15,7 +15,7 @@ import {
     View,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-  import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type FilterId = 'all' | 'under10' | 'driveway' | 'garage';
 
@@ -28,10 +28,11 @@ const FILTERS: { id: FilterId; label: string }[] = [
 
 export default function BrowseScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [spots, setSpots] = useState<Listing[]>([]);
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(params.location ? String(params.location) : '');
   const [activeFilter, setActiveFilter] = useState<FilterId>('all');
 
   useEffect(() => {
@@ -84,6 +85,13 @@ export default function BrowseScreen() {
   }, [spots, searchText, activeFilter]);
 
   const mapPreviewCenter = useMemo(() => {
+    if (params.lat && params.lng) {
+      return {
+        latitude: parseFloat(String(params.lat)),
+        longitude: parseFloat(String(params.lng)),
+      };
+    }
+
     const source = visibleSpots.length > 0 ? visibleSpots : spots;
     const firstWithCoords = source.find((spot) => spot.latitude != null && spot.longitude != null);
 
@@ -98,16 +106,32 @@ export default function BrowseScreen() {
       latitude: 37.7749,
       longitude: -122.4194,
     };
-  }, [visibleSpots, spots]);
+  }, [visibleSpots, spots, params.lat, params.lng]);
 
   const onConfirmSpot = async (spot: Listing) => {
+    let start = new Date();
+    let end = new Date(start.getTime() + 60 * 60 * 1000);
+
+    if (params.date && params.startTime && params.endTime) {
+      const selectedDate = new Date(String(params.date));
+      const selectedStart = new Date(String(params.startTime));
+      const selectedEnd = new Date(String(params.endTime));
+
+      start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), selectedStart.getHours(), selectedStart.getMinutes());
+      end = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), selectedEnd.getHours(), selectedEnd.getMinutes());
+      
+      if (end <= start) {
+        end.setDate(end.getDate() + 1); // Handle overnight booking
+      }
+    }
+
+    const hours = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60)));
+
     const rate = computeHourlyRate({
       baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
       address: spot.address,
-      startTime: new Date(),
+      startTime: start,
     });
-    const start = new Date();
-    const end = new Date(start.getTime() + 60 * 60 * 1000);
 
     const {
       data: { user },
@@ -118,7 +142,7 @@ export default function BrowseScreen() {
       return;
     }
 
-    const totalAmount = rate * 1.12;
+    const totalAmount = rate * hours * 1.12;
     const { error } = await supabase.from('bookings').insert({
       spot_id: spot.id,
       spot_name: spot.title,
@@ -130,7 +154,7 @@ export default function BrowseScreen() {
       user_id: user.id,
       start_time: start.toISOString(),
       end_time: end.toISOString(),
-      hours: 1,
+      hours: hours,
       price_per_hour: spot.pricePerHour ?? DEFAULT_BASE_RATE,
       amount: totalAmount,
       status: 'confirmed',
@@ -142,7 +166,10 @@ export default function BrowseScreen() {
       return;
     }
 
-    Alert.alert('Spot confirmed', 'Your reservation has been added.', [
+    const dateLabel = start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    const timeLabel = `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+    Alert.alert('Spot confirmed', `${spot.title}\n${spot.address}\n${dateLabel} • ${timeLabel}`, [
       {
         text: 'View Reservation',
         onPress: () => router.push('/reservations'),
@@ -160,7 +187,16 @@ export default function BrowseScreen() {
       <AnimatedListItem index={0} direction="down">
         <TouchableOpacity
           style={[styles.mapPreviewCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
-          onPress={() => router.push('/map')}
+          onPress={() => router.push({
+            pathname: '/map',
+            params: {
+              lat: mapPreviewCenter.latitude,
+              lng: mapPreviewCenter.longitude,
+              date: params.date,
+              startTime: params.startTime,
+              endTime: params.endTime,
+            }
+          })}
           activeOpacity={0.9}
         >
           <MapView
