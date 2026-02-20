@@ -1,6 +1,7 @@
 import { setAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useState } from 'react';
 import {
     ActivityIndicator,
@@ -15,12 +16,104 @@ import {
 } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
+WebBrowser.maybeCompleteAuthSession();
+
 export default function SignupScreen() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailSignupDisabled, setEmailSignupDisabled] = useState(false);
+
+  const handleGoogleSignup = async () => {
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'parkdemo://auth/callback',
+          skipBrowserRedirect: false,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+
+      if (error) {
+        Alert.alert('Google Sign Up Failed', error.message || 'Could not start Google sign up.');
+        setLoading(false);
+        return;
+      }
+
+      if (!data?.url) {
+        Alert.alert('Google Sign Up Failed', 'Could not open Google sign up.');
+        setLoading(false);
+        return;
+      }
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, 'parkdemo://auth/callback');
+
+      if (result.type !== 'success') {
+        setLoading(false);
+        return;
+      }
+
+      const callbackUrl = 'url' in result ? result.url : undefined;
+
+      if (callbackUrl) {
+        const parsed = new URL(callbackUrl);
+        const queryParams = new URLSearchParams(parsed.search);
+        const hashParams = new URLSearchParams(parsed.hash.replace(/^#/, ''));
+
+        const code = queryParams.get('code') ?? hashParams.get('code');
+        const accessToken = queryParams.get('access_token') ?? hashParams.get('access_token');
+        const refreshToken = queryParams.get('refresh_token') ?? hashParams.get('refresh_token');
+
+        if (code) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) {
+            console.error('Code exchange error:', exchangeError);
+          }
+        } else if (accessToken && refreshToken) {
+          const { error: setSessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (setSessionError) {
+            console.error('Set session error:', setSessionError);
+          }
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session) {
+        Alert.alert(
+          'Google Sign Up Failed',
+          'Could not complete your Google session. Check Supabase redirect URLs include parkdemo://auth/callback.'
+        );
+        setLoading(false);
+        return;
+      }
+
+      const oauthUser = sessionData.session.user;
+      await setAuth('google', {
+        userId: oauthUser.id,
+        email: oauthUser.email,
+        name: oauthUser.user_metadata?.name || oauthUser.user_metadata?.full_name || oauthUser.email,
+      });
+
+      setLoading(false);
+      router.replace('/(tabs)');
+    } catch (error: any) {
+      Alert.alert('Google Sign Up Failed', error?.message || 'Please try again.');
+      setLoading(false);
+    }
+  };
 
   const handleSignup = async () => {
     if (!email.trim() || !password.trim()) {
@@ -28,6 +121,7 @@ export default function SignupScreen() {
       return;
     }
 
+    setEmailSignupDisabled(false);
     setLoading(true);
 
     const { data, error } = await supabase.auth.signUp({
@@ -42,6 +136,17 @@ export default function SignupScreen() {
 
     if (error) {
       setLoading(false);
+      const message = error.message || 'Unable to create your account.';
+
+      if (message.toLowerCase().includes('email signups are disabled')) {
+        setEmailSignupDisabled(true);
+        Alert.alert(
+          'Email Signups Disabled',
+          'Enable Email provider in Supabase: Authentication → Providers → Email, then try again.'
+        );
+        return;
+      }
+
       Alert.alert('Sign up failed', error.message || 'Unable to create your account.');
       return;
     }
@@ -135,9 +240,27 @@ export default function SignupScreen() {
             )}
           </Pressable>
 
-          <Pressable onPress={() => router.replace('/(auth)/email-login')} disabled={loading}>
-            <Text style={styles.linkText}>Already have an account? Log in</Text>
+          <Pressable
+            style={({ pressed }) => [styles.googleButton, pressed && styles.buttonPressed]}
+            onPress={handleGoogleSignup}
+            disabled={loading}
+          >
+            <Text style={styles.googleButtonText}>Sign up with Google</Text>
           </Pressable>
+
+          <Pressable onPress={() => router.replace('/(auth)/login')} disabled={loading}>
+            <Text style={styles.linkText}>Already have an account? Sign in</Text>
+          </Pressable>
+
+          {emailSignupDisabled && (
+            <Pressable
+              style={({ pressed }) => [styles.googleFallbackButton, pressed && styles.buttonPressed]}
+              onPress={handleGoogleSignup}
+              disabled={loading}
+            >
+              <Text style={styles.googleFallbackText}>Use Google instead</Text>
+            </Pressable>
+          )}
         </Animated.View>
       </View>
     </KeyboardAvoidingView>
@@ -227,10 +350,38 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0f172a',
   },
+  googleButton: {
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  googleButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
   linkText: {
     textAlign: 'center',
     color: '#94a3b8',
     marginTop: 8,
     fontSize: 13,
+  },
+  googleFallbackButton: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    backgroundColor: '#111827',
+  },
+  googleFallbackText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

@@ -23,10 +23,6 @@ export default function LoginScreen() {
     checkAppleAuth();
   }, []);
 
-  const handleSignIn = () => {
-    router.push('/(auth)/email-login');
-  };
-
   const handleCreateAccount = () => {
     router.push('/(auth)/signup');
   };
@@ -79,9 +75,34 @@ export default function LoginScreen() {
         console.log('🔵 OAuth result:', result);
 
         if (result.type === 'success') {
-          // Extract the session from the URL
-          // Wait a moment for Supabase to process the session
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          const callbackUrl = 'url' in result ? result.url : undefined;
+
+          if (callbackUrl) {
+            const parsed = new URL(callbackUrl);
+            const queryParams = new URLSearchParams(parsed.search);
+            const hashParams = new URLSearchParams(parsed.hash.replace(/^#/, ''));
+
+            const code = queryParams.get('code') ?? hashParams.get('code');
+            const accessToken = queryParams.get('access_token') ?? hashParams.get('access_token');
+            const refreshToken = queryParams.get('refresh_token') ?? hashParams.get('refresh_token');
+
+            if (code) {
+              const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+              if (exchangeError) {
+                console.error('Code exchange error:', exchangeError);
+              }
+            } else if (accessToken && refreshToken) {
+              const { error: setSessionError } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              });
+              if (setSessionError) {
+                console.error('Set session error:', setSessionError);
+              }
+            }
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 400));
           
           // Get the current session
           const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -108,7 +129,7 @@ export default function LoginScreen() {
             router.replace('/(tabs)');
           } else {
             console.log('No session found');
-            Alert.alert('Error', 'No session established');
+            Alert.alert('Sign-In Error', 'No session established. Verify Supabase redirect URLs include parkdemo://auth/callback.');
             setLoading(false);
           }
         } else if (result.type === 'cancel') {
@@ -217,10 +238,10 @@ export default function LoginScreen() {
               styles.createButton,
               pressed && styles.buttonPressed,
             ]}
-            onPress={handleSignIn}
+            onPress={handleCreateAccount}
             disabled={loading}
           >
-            <Text style={styles.buttonText}>Sign in</Text>
+            <Text style={styles.buttonText}>Create account</Text>
           </Pressable>
 
           <Pressable
@@ -257,17 +278,7 @@ export default function LoginScreen() {
             </Pressable>
           )}
 
-          <Pressable
-            style={({ pressed }) => [
-              styles.button,
-              styles.secondaryButton,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={handleCreateAccount}
-            disabled={loading}
-          >
-            <Text style={styles.secondaryButtonText}>Create account</Text>
-          </Pressable>
+          <Text style={styles.altText}>Already have an account? Use Sign in above.</Text>
 
           <Text style={styles.disclaimer}>
             {appleAvailable && Platform.OS === 'ios' 
@@ -341,11 +352,6 @@ const styles = StyleSheet.create({
   createButton: {
     backgroundColor: '#10b981',
   },
-  secondaryButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
   googleButton: {
     backgroundColor: '#fff',
   },
@@ -363,15 +369,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  secondaryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#e2e8f0',
-  },
   googleButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#0f172a',
+  },
+  altText: {
+    fontSize: 13,
+    color: '#94a3b8',
+    textAlign: 'center',
   },
   disclaimer: {
     fontSize: 12,
