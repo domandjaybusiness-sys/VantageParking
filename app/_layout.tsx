@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -5,7 +6,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
 
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { isAuthenticated } from '@/lib/auth';
@@ -26,7 +26,7 @@ function RootNavigator() {
 
   useEffect(() => {
     Animated.sequence([
-      Animated.delay(200),
+      Animated.delay(100),
       // 1. Pop up the P sign
       Animated.spring(pScale, {
         toValue: 1,
@@ -34,18 +34,18 @@ function RootNavigator() {
         tension: 40,
         useNativeDriver: true,
       }),
-      Animated.delay(200),
+      Animated.delay(50),
       // 2. Open the gate
       Animated.timing(gateRotation, {
         toValue: 1,
-        duration: 500,
+        duration: 300,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }),
       // 3. Car drives in
       Animated.timing(carTranslateX, {
         toValue: 100, // Stop position
-        duration: 700,
+        duration: 400,
         easing: Easing.out(Easing.back(1.2)),
         useNativeDriver: true,
       }),
@@ -53,12 +53,12 @@ function RootNavigator() {
       Animated.parallel([
         Animated.timing(textOpacity, {
           toValue: 1,
-          duration: 500,
+          duration: 400,
           useNativeDriver: true,
         }),
         Animated.timing(textTranslateY, {
           toValue: 0,
-          duration: 500,
+          duration: 400,
           easing: Easing.out(Easing.ease),
           useNativeDriver: true,
         }),
@@ -75,8 +75,8 @@ function RootNavigator() {
   }, [pScale, gateRotation, carTranslateX, textOpacity, textTranslateY]);
 
   useEffect(() => {
-    // Ensure splash displays for at least 3 seconds on cold start to show the animation
-    const MIN_SPLASH_MS = 3000; 
+    // Ensure splash displays for at least 2 seconds on cold start to show the animation
+    const MIN_SPLASH_MS = 2000; 
     const t = setTimeout(() => setMinSplashDone(true), MIN_SPLASH_MS);
     return () => clearTimeout(t);
   }, []);
