@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
@@ -23,6 +23,15 @@ export default function ProfileScreen() {
   const [phoneVerified] = useState(false);
   const userRating = 4.9;
   const [loadingProfile, setLoadingProfile] = useState(true);
+
+  // Vehicle state
+  const [vehicleMake, setVehicleMake] = useState('Toyota');
+  const [vehicleModel, setVehicleModel] = useState('Camry');
+  const [vehiclePlate, setVehiclePlate] = useState('ABC-1234');
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [tempMake, setTempMake] = useState('');
+  const [tempModel, setTempModel] = useState('');
+  const [tempPlate, setTempPlate] = useState('');
 
   useEffect(() => {
     const loadUser = async () => {
@@ -136,6 +145,25 @@ export default function ProfileScreen() {
     });
   };
 
+  const handleSaveVehicle = () => {
+    if (!tempMake.trim() || !tempModel.trim() || !tempPlate.trim()) {
+      Alert.alert('Missing Info', 'Please fill out all vehicle details.');
+      return;
+    }
+    setVehicleMake(tempMake.trim());
+    setVehicleModel(tempModel.trim());
+    setVehiclePlate(tempPlate.trim().toUpperCase());
+    setShowVehicleModal(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const openVehicleModal = () => {
+    setTempMake(vehicleMake);
+    setTempModel(vehicleModel);
+    setTempPlate(vehiclePlate);
+    setShowVehicleModal(true);
+  };
+
   // make sure icons match the names defined in IconSymbol
   const menuItems: { title: string; icon: IconSymbolName }[] = [
     { title: 'Reservations', icon: 'clock' },
@@ -166,9 +194,33 @@ export default function ProfileScreen() {
         </View>
       </AnimatedListItem>
 
+      {/* Vehicle Management Section */}
+      <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+        <AnimatedListItem index={1} direction="up">
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>My Vehicle</Text>
+          <Pressable
+            onPress={openVehicleModal}
+            style={({ pressed }) => [
+              styles.vehicleCard,
+              { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+              pressed && { opacity: 0.7 }
+            ]}
+          >
+            <View style={[styles.vehicleIconContainer, { backgroundColor: colors.background }]}>
+              <IconSymbol name="car" size={24} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.vehicleTitle, { color: colors.text }]}>{vehicleMake} {vehicleModel}</Text>
+              <Text style={[styles.vehiclePlate, { color: colors.textSecondary }]}>License Plate: {vehiclePlate}</Text>
+            </View>
+            <Text style={[styles.menuItemArrow, { color: colors.textSecondary }]}>›</Text>
+          </Pressable>
+        </AnimatedListItem>
+      </View>
+
       {/* Theme Toggle Section */}
       <View style={styles.themeSection}>
-        <AnimatedListItem index={1} direction="up">
+        <AnimatedListItem index={2} direction="up">
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Appearance</Text>
           <View style={[styles.themeCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
             <TouchableOpacity
@@ -238,7 +290,7 @@ export default function ProfileScreen() {
 
       <View style={styles.menuContainer}>
         {menuItems.map((item, index) => (
-          <AnimatedListItem key={item.title} index={index + 2} direction="up">
+          <AnimatedListItem key={item.title} index={index + 3} direction="up">
             <AnimatedPressableButton
               style={[styles.menuItem, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
               onPress={() => handleMenuPress(item.title)}
@@ -360,6 +412,73 @@ export default function ProfileScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      {/* Vehicle Modal */}
+      <Modal
+        visible={showVehicleModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowVehicleModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.vehicleModalContent, { backgroundColor: colors.backgroundCard }]}>
+            <View style={styles.vehicleModalHeader}>
+              <Text style={[styles.vehicleModalTitle, { color: colors.text }]}>Edit Vehicle</Text>
+              <TouchableOpacity onPress={() => setShowVehicleModal(false)} style={styles.closeButton}>
+                <IconSymbol name="xmark" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Make</Text>
+              <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <TextInput
+                  style={[styles.input, { color: colors.text }]}
+                  value={tempMake}
+                  onChangeText={setTempMake}
+                  placeholder="e.g. Toyota"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Model</Text>
+              <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <TextInput
+                  style={[styles.input, { color: colors.text }]}
+                  value={tempModel}
+                  onChangeText={setTempModel}
+                  placeholder="e.g. Camry"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>License Plate</Text>
+              <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <TextInput
+                  style={[styles.input, { color: colors.text }]}
+                  value={tempPlate}
+                  onChangeText={setTempPlate}
+                  placeholder="e.g. ABC-1234"
+                  placeholderTextColor={colors.textSecondary}
+                  autoCapitalize="characters"
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.saveButton, { backgroundColor: colors.primary }]}
+              onPress={handleSaveVehicle}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.saveButtonText}>Save Vehicle</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -415,6 +534,79 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   
+  vehicleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 16,
+  },
+  vehicleIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  vehiclePlate: {
+    fontSize: 14,
+  },
+  vehicleModalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+  },
+  vehicleModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  vehicleModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  inputContainer: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  input: {
+    height: 50,
+    paddingHorizontal: 16,
+    fontSize: 16,
+  },
+  saveButton: {
+    height: 56,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
   menuContainer: { paddingVertical: 16 },
   menuItem: {
     flexDirection: 'row',

@@ -51,7 +51,7 @@ export default function ReservationsScreen() {
 
       const { data, error } = await supabase
         .from('bookings')
-        .select('*, spot:spots ( id, title, address, lat, lng, latitude, longitude, price )')
+        .select('*, spot:spots ( id, title, address, lat, lng, price_per_hour )')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
@@ -81,12 +81,13 @@ export default function ReservationsScreen() {
         const status = String(row?.status ?? 'Pending');
         const statusLower = status.toLowerCase();
         const isPast = ['paid', 'completed', 'cancelled'].includes(statusLower) || end.getTime() < now;
-        const spot = row?.spot ?? null;
+        const spotObj = Array.isArray(row?.spot) ? row.spot[0] : row?.spot;
+        const spot = spotObj ?? null;
         const latRaw = row?.lat ?? row?.latitude ?? row?.spot_lat ?? row?.spotLat ?? spot?.lat ?? spot?.latitude ?? null;
         const lngRaw = row?.lng ?? row?.longitude ?? row?.spot_lng ?? row?.spotLng ?? spot?.lng ?? spot?.longitude ?? null;
         const lat = typeof latRaw === 'number' ? latRaw : (typeof latRaw === 'string' ? parseFloat(latRaw) : null);
         const lng = typeof lngRaw === 'number' ? lngRaw : (typeof lngRaw === 'string' ? parseFloat(lngRaw) : null);
-        const pricePerHourRaw = row?.price_per_hour ?? row?.pricePerHour ?? row?.price ?? spot?.price ?? 0;
+        const pricePerHourRaw = row?.price_per_hour ?? row?.pricePerHour ?? row?.price ?? spot?.price_per_hour ?? spot?.price ?? 0;
         const pricePerHour = Number(pricePerHourRaw ?? 0);
         const hoursRaw = row?.hours ?? row?.duration ?? 1;
         const hoursValue = Number(hoursRaw ?? 1) || 1;

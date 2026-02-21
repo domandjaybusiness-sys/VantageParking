@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { isAuthenticated } from '@/lib/auth';
@@ -16,64 +17,66 @@ function RootNavigator() {
   const navigationState = useRootNavigationState();
   const [authChecked, setAuthChecked] = useState(false);
   const [minSplashDone, setMinSplashDone] = useState(false);
-  const scaleAnim = useRef(new Animated.Value(0.85)).current;
-  const dots = useRef([new Animated.Value(0), new Animated.Value(0), new Animated.Value(0)]).current;
-  const bgFade = useRef(new Animated.Value(0)).current;
-  const ringAnims = useRef([new Animated.Value(0), new Animated.Value(0), new Animated.Value(0)]).current;
+  
+  const pScale = useRef(new Animated.Value(0)).current;
+  const gateRotation = useRef(new Animated.Value(0)).current;
+  const carTranslateX = useRef(new Animated.Value(-250)).current;
+  const textOpacity = useRef(new Animated.Value(0)).current;
+  const textTranslateY = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
-    const logoPulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(scaleAnim, { toValue: 1, duration: 700, easing: Easing.out(Easing.exp), useNativeDriver: true }),
-        Animated.timing(scaleAnim, { toValue: 0.95, duration: 700, easing: Easing.in(Easing.exp), useNativeDriver: true }),
-      ])
-    );
-
-    const dotAnims = dots.map((d, i) =>
+    Animated.sequence([
+      Animated.delay(200),
+      // 1. Pop up the P sign
+      Animated.spring(pScale, {
+        toValue: 1,
+        friction: 5,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.delay(200),
+      // 2. Open the gate
+      Animated.timing(gateRotation, {
+        toValue: 1,
+        duration: 500,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+      // 3. Car drives in
+      Animated.timing(carTranslateX, {
+        toValue: 100, // Stop position
+        duration: 700,
+        easing: Easing.out(Easing.back(1.2)),
+        useNativeDriver: true,
+      }),
+      // 4. Text fades in
+      Animated.parallel([
+        Animated.timing(textOpacity, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(textTranslateY, {
+          toValue: 0,
+          duration: 500,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start(() => {
+      // Idle pulse for the P sign
       Animated.loop(
         Animated.sequence([
-          Animated.delay(i * 150),
-          Animated.timing(d, { toValue: 1, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(d, { toValue: 0.25, duration: 450, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(pScale, { toValue: 1.05, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(pScale, { toValue: 1, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
         ])
-      )
-    );
-
-    // rotation removed: no spinning text
-
-    const bgLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(bgFade, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(bgFade, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
-      ])
-    );
-
-    const ringLoops = ringAnims.map((r, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 240),
-          Animated.timing(r, { toValue: 1, duration: 1400, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-          Animated.timing(r, { toValue: 0, duration: 600, easing: Easing.linear, useNativeDriver: true }),
-        ])
-      )
-    );
-
-    logoPulse.start();
-    dotAnims.forEach((a) => a.start());
-    bgLoop.start();
-    ringLoops.forEach((r) => r.start());
-
-    return () => {
-      logoPulse.stop();
-      dotAnims.forEach((a) => a.stop());
-      bgLoop.stop();
-      ringLoops.forEach((r) => r.stop());
-    };
-  }, [scaleAnim, dots, bgFade, ringAnims]);
+      ).start();
+    });
+  }, [pScale, gateRotation, carTranslateX, textOpacity, textTranslateY]);
 
   useEffect(() => {
-    // Ensure splash displays for at least 2.5 seconds on cold start
-    const MIN_SPLASH_MS = 2500; // between 2000-3000ms per request
+    // Ensure splash displays for at least 3 seconds on cold start to show the animation
+    const MIN_SPLASH_MS = 3000; 
     const t = setTimeout(() => setMinSplashDone(true), MIN_SPLASH_MS);
     return () => clearTimeout(t);
   }, []);
@@ -103,42 +106,45 @@ function RootNavigator() {
   }, [navigationState?.key, router, segments]);
 
   if (!authChecked || !minSplashDone) {
-    const bgOverlayOpacity = bgFade.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] });
+    const gateRotateInterpolate = gateRotation.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '90deg'],
+    });
 
     return (
       <View style={styles.splashContainerBlack}>
-        <Animated.View style={[styles.bgOverlay, { opacity: bgOverlayOpacity }]} />
-
-        <View style={styles.logoWrap}>
-          {/* pulsing rings */}
-          {ringAnims.map((r, i) => (
-            <Animated.View
-              key={`ring-${i}`}
-              style={[
-                styles.ring,
-                {
-                  transform: [{ scale: r.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.2] }) }],
-                  opacity: r.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0.18, 0] }),
-                },
-              ]}
-            />
-          ))}
-
-          <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-            <Text style={styles.logoBig}>Vantage</Text>
+        <View style={styles.animationContainer}>
+          
+          {/* Parking Sign */}
+          <Animated.View style={[styles.pSignContainer, { transform: [{ scale: pScale }] }]}>
+            <Text style={styles.pSignText}>P</Text>
           </Animated.View>
-        </View>
 
-        <View style={styles.loadingRow}>
-          {dots.map((d, i) => (
-            <Animated.View
-              key={i}
-              style={[
-                styles.dot,
-                { opacity: d, transform: [{ translateY: d.interpolate({ inputRange: [0, 1], outputRange: [0, -8] }) }, { scale: d.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.25] }) }] },
-              ]}
-            />
-          ))}
+          {/* Gate and Car Container */}
+          <View style={styles.roadContainer}>
+            {/* Barrier Gate Base */}
+            <View style={styles.gateBase} />
+            
+            {/* Barrier Gate Arm (Pivot) */}
+            <Animated.View style={[styles.gatePivot, { transform: [{ rotate: gateRotateInterpolate }] }]}>
+              <View style={styles.gateArm} />
+            </Animated.View>
+            
+            {/* Car */}
+            <Animated.View style={[styles.carContainer, { transform: [{ translateX: carTranslateX }] }]}>
+              <Ionicons name="car-sport" size={56} color="#fff" />
+            </Animated.View>
+            
+            {/* Road Line */}
+            <View style={styles.roadLine} />
+          </View>
+
+          {/* Brand Text */}
+          <Animated.View style={{ opacity: textOpacity, transform: [{ translateY: textTranslateY }], alignItems: 'center', marginTop: 20 }}>
+            <Text style={styles.logoBig}>Vantage</Text>
+            <Text style={styles.logoSub}>PARKING</Text>
+          </Animated.View>
+
         </View>
       </View>
     );
@@ -197,21 +203,84 @@ const styles = StyleSheet.create({
   },
   splashContainerBlack: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#0f172a', // Dark slate for a modern asphalt look
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logoWrap: {
+  animationContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-    width: 220,
-    height: 220,
+    width: '100%',
   },
-  bgOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#071028',
-    zIndex: 0,
+  pSignContainer: {
+    width: 72,
+    height: 72,
+    backgroundColor: '#3b82f6',
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 4,
+    borderColor: '#fff',
+    marginBottom: 50,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  pSignText: {
+    color: '#fff',
+    fontSize: 42,
+    fontWeight: '900',
+  },
+  roadContainer: {
+    width: 240,
+    height: 80,
+    justifyContent: 'flex-end',
+    marginBottom: 20,
+  },
+  gateBase: {
+    position: 'absolute',
+    right: 40,
+    bottom: 0,
+    width: 14,
+    height: 45,
+    backgroundColor: '#94a3b8',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    zIndex: 2,
+  },
+  gatePivot: {
+    position: 'absolute',
+    right: 47, // Center of the base (40 + 14/2)
+    bottom: 35, // Near the top of the base
+    width: 0,
+    height: 0,
+    zIndex: 3,
+  },
+  gateArm: {
+    position: 'absolute',
+    right: -4, // Extend slightly past the pivot
+    top: -4, // Center vertically on pivot
+    width: 140,
+    height: 8,
+    backgroundColor: '#ef4444',
+    borderRadius: 4,
+  },
+  carContainer: {
+    position: 'absolute',
+    left: 0,
+    bottom: 4,
+    zIndex: 1,
+  },
+  roadLine: {
+    position: 'absolute',
+    bottom: 0,
+    left: -40,
+    right: -40,
+    height: 4,
+    backgroundColor: '#334155',
+    borderRadius: 2,
   },
   logoBig: {
     color: '#fff',
@@ -219,28 +288,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 2,
   },
-  ring: {
-    position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    borderWidth: 2,
-    borderColor: '#78a9ff',
-    backgroundColor: 'transparent',
-    zIndex: -1,
-  },
-  loadingRow: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#fff',
-    marginHorizontal: 6,
-    opacity: 0.25,
+  logoSub: {
+    color: '#3b82f6',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 6,
+    marginTop: 4,
   },
 });

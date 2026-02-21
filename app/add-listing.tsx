@@ -1,11 +1,19 @@
+import { AnimatedListItem } from '@/components/ui/animated-list-item';
+import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useTheme } from '@/contexts/ThemeContext';
 import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AddListingScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState('');
   // split address fields
   const [street, setStreet] = useState('');
@@ -270,96 +278,180 @@ export default function AddListingScreen() {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.header}>Add New Spot</Text>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView contentContainerStyle={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 40 }]}>
+        <AnimatedListItem index={0} direction="down">
+          <Text style={[styles.header, { color: colors.text }]}>Add New Spot</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>List your parking spot and start earning.</Text>
+        </AnimatedListItem>
 
-        <Text style={styles.label}>Spot title</Text>
-        <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Downtown Garage" />
+        <AnimatedListItem index={1} direction="up">
+          <View style={[styles.card, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
+            <Text style={[styles.label, { color: colors.text }]}>Spot title</Text>
+            <TextInput 
+              style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]} 
+              value={title} 
+              onChangeText={setTitle} 
+              placeholder="e.g. Downtown Garage" 
+              placeholderTextColor={colors.textSecondary}
+            />
 
-        <Text style={styles.label}>Street address</Text>
-        <TextInput 
-          style={styles.input} 
-          value={street} 
-          onChangeText={setStreet} 
-          placeholder="123 Main St" 
-          onFocus={() => street.length >= 3 && suggestions.length > 0 && setShowSuggestions(true)}
-        />
-        
-        {/* Autocomplete suggestions dropdown */}
-        {showSuggestions && suggestions.length > 0 && (
-          <View style={styles.suggestionsContainer}>
-            {suggestions.map((feature, index) => {
-              const props = feature.properties;
-              const displayText = [
-                props.housenumber,
-                props.name || props.street,
-                props.city || props.town,
-                props.state,
-                props.postcode,
-              ].filter(Boolean).join(', ');
-              
-              return (
-                <TouchableOpacity
-                  key={index}
-                  style={styles.suggestionItem}
-                  onPress={() => handleSelectSuggestion(feature)}
-                >
-                  <Text style={styles.suggestionText}>{displayText}</Text>
-                </TouchableOpacity>
-              );
-            })}
+            <Text style={[styles.label, { color: colors.text }]}>Street address</Text>
+            <TextInput 
+              style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]} 
+              value={street} 
+              onChangeText={setStreet} 
+              placeholder="123 Main St" 
+              placeholderTextColor={colors.textSecondary}
+              onFocus={() => street.length >= 3 && suggestions.length > 0 && setShowSuggestions(true)}
+            />
+            
+            {/* Autocomplete suggestions dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <View style={[styles.suggestionsContainer, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
+                {suggestions.map((feature, index) => {
+                  const props = feature.properties;
+                  const displayText = [
+                    props.housenumber,
+                    props.name || props.street,
+                    props.city || props.town,
+                    props.state,
+                    props.postcode,
+                  ].filter(Boolean).join(', ');
+                  
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      style={[styles.suggestionItem, { borderBottomColor: colors.border }]}
+                      onPress={() => handleSelectSuggestion(feature)}
+                    >
+                      <Text style={[styles.suggestionText, { color: colors.text }]}>{displayText}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            <Text style={[styles.label, { color: colors.text }]}>Unit (optional)</Text>
+            <TextInput 
+              style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]} 
+              value={unit} 
+              onChangeText={setUnit} 
+              placeholder="Apt 2B" 
+              placeholderTextColor={colors.textSecondary}
+            />
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.label, { color: colors.text }]}>City</Text>
+                <TextInput 
+                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]} 
+                  value={city} 
+                  onChangeText={setCity} 
+                  placeholder="City" 
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+              <View style={{ width: 110 }}>
+                <Text style={[styles.label, { color: colors.text }]}>ZIP</Text>
+                <TextInput 
+                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]} 
+                  value={zip} 
+                  onChangeText={setZip} 
+                  placeholder="ZIP" 
+                  keyboardType="number-pad" 
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.label, { color: colors.text }]}>State</Text>
+                <TextInput 
+                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]} 
+                  value={stateField} 
+                  onChangeText={setStateField} 
+                  placeholder="State" 
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.label, { color: colors.text }]}>Number of spots</Text>
+                <TextInput 
+                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]} 
+                  value={spots} 
+                  onChangeText={setSpots} 
+                  keyboardType="number-pad" 
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+            </View>
           </View>
-        )}
+        </AnimatedListItem>
 
-        <Text style={styles.label}>Unit (optional)</Text>
-        <TextInput style={styles.input} value={unit} onChangeText={setUnit} placeholder="Apt 2B" />
+        <AnimatedListItem index={2} direction="up">
+          <View style={styles.buttonContainer}>
+            <AnimatedPressableButton 
+              style={[styles.actionButton, { backgroundColor: colors.primary }]} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onLocate();
+              }}
+            >
+              <IconSymbol name="map.fill" size={20} color="#fff" />
+              <Text style={styles.actionText}>Locate on Map</Text>
+            </AnimatedPressableButton>
 
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>City</Text>
-            <TextInput style={styles.input} value={city} onChangeText={setCity} placeholder="City" />
+            <AnimatedPressableButton 
+              style={[styles.actionButton, { backgroundColor: colors.text }]} 
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onSubmit();
+              }}
+            >
+              <IconSymbol name="checkmark.circle.fill" size={20} color={colors.background} />
+              <Text style={[styles.actionText, { color: colors.background }]}>Save & View on Map</Text>
+            </AnimatedPressableButton>
           </View>
-          <View style={{ width: 100 }}>
-            <Text style={styles.label}>ZIP</Text>
-            <TextInput style={styles.input} value={zip} onChangeText={setZip} placeholder="ZIP" keyboardType="number-pad" />
-          </View>
-        </View>
-
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>State</Text>
-            <TextInput style={styles.input} value={stateField} onChangeText={setStateField} placeholder="State" />
-          </View>
-        </View>
-
-        <Text style={styles.label}>Number of spots</Text>
-        <TextInput style={styles.input} value={spots} onChangeText={setSpots} keyboardType="number-pad" />
-
-        <Pressable style={[styles.saveButton, { backgroundColor: '#2563eb' }]} onPress={onLocate} android_ripple={{ color: '#eee' }}>
-          <Text style={styles.saveText}>Locate on Map</Text>
-        </Pressable>
-
-        <Pressable style={styles.saveButton} onPress={onSubmit} android_ripple={{ color: '#eee' }}>
-          <Text style={styles.saveText}>Save & View on Map</Text>
-        </Pressable>
+        </AnimatedListItem>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, backgroundColor: '#fff', paddingBottom: 40 },
-  header: { fontSize: 22, fontWeight: '700', marginBottom: 16 },
-  label: { color: '#444', marginTop: 12, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 12, backgroundColor: '#fff' },
-  saveButton: { marginTop: 24, backgroundColor: '#0a7ea4', padding: 14, borderRadius: 10, alignItems: 'center' },
-  saveText: { color: '#fff', fontWeight: '700' },
+  container: { padding: 16 },
+  header: { fontSize: 28, fontWeight: '800', marginBottom: 4 },
+  subtitle: { fontSize: 16, marginBottom: 24 },
+  card: {
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 24,
+  },
+  label: { fontSize: 14, fontWeight: '600', marginTop: 16, marginBottom: 8 },
+  input: { 
+    borderWidth: 1, 
+    borderRadius: 12, 
+    padding: 14, 
+    fontSize: 16,
+  },
+  buttonContainer: {
+    gap: 12,
+  },
+  actionButton: { 
+    flexDirection: 'row',
+    padding: 16, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    gap: 8,
+  },
+  actionText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   suggestionsContainer: {
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 8,
+    borderRadius: 12,
     marginTop: 4,
     maxHeight: 200,
     shadowColor: '#000',
@@ -367,14 +459,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    overflow: 'hidden',
   },
   suggestionItem: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    padding: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   suggestionText: {
     fontSize: 14,
-    color: '#111',
   },
 });

@@ -4,8 +4,9 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View, KeyboardAvoidingView } from 'react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -13,6 +14,8 @@ export default function LoginScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   useEffect(() => {
     // Check if Apple Authentication is available
@@ -25,6 +28,38 @@ export default function LoginScreen() {
 
   const handleCreateAccount = () => {
     router.push('/(auth)/signup');
+  };
+
+  const handleEmailLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert('Missing info', 'Please enter your email and password.');
+      return;
+    }
+
+    setLoading(true);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: password.trim(),
+    });
+
+    if (error) {
+      setLoading(false);
+      Alert.alert('Login failed', error.message || 'Invalid email or password.');
+      return;
+    }
+
+    if (data?.session?.user) {
+      const user = data.session.user;
+      await setAuth('email', {
+        userId: user.id,
+        email: user.email,
+        name: user.user_metadata?.name || user.user_metadata?.full_name || user.email,
+      });
+      setLoading(false);
+      router.replace('/(tabs)');
+    } else {
+      setLoading(false);
+    }
   };
 
   const handleGoogle = async () => {
@@ -213,7 +248,10 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <View style={styles.content}>
         {/* App Logo/Title */}
         <Animated.View 
@@ -221,10 +259,10 @@ export default function LoginScreen() {
           style={styles.header}
         >
           <View style={styles.logoContainer}>
-            <Text style={styles.logoIcon}>🚗</Text>
+            <Ionicons name="car-sport" size={40} color="#3b82f6" />
           </View>
-          <Text style={styles.appTitle}>Vantage</Text>
-          <Text style={styles.subtitle}>Find & reserve parking in seconds</Text>
+          <Text style={styles.appTitle}>Welcome back</Text>
+          <Text style={styles.subtitle}>Log in to manage your parking</Text>
         </Animated.View>
 
         {/* Buttons */}
@@ -232,17 +270,55 @@ export default function LoginScreen() {
           entering={FadeInUp.duration(600).delay(300)}
           style={styles.buttonContainer}
         >
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="you@email.com"
+              placeholderTextColor="#64748b"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              returnKeyType="next"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Password</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your password"
+              placeholderTextColor="#64748b"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              returnKeyType="done"
+            />
+          </View>
+
           <Pressable
             style={({ pressed }) => [
               styles.button,
-              styles.createButton,
+              styles.loginButton,
               pressed && styles.buttonPressed,
             ]}
-            onPress={handleCreateAccount}
+            onPress={handleEmailLogin}
             disabled={loading}
           >
-            <Text style={styles.buttonText}>Create account</Text>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Log in</Text>
+            )}
           </Pressable>
+
+          <View style={styles.dividerContainer}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
 
           <Pressable
             style={({ pressed }) => [
@@ -253,13 +329,14 @@ export default function LoginScreen() {
             onPress={handleGoogle}
             disabled={loading}
           >
-            <Text style={styles.googleButtonText}>Sign in with Google</Text>
+            <Ionicons name="logo-google" size={20} color="#0f172a" style={styles.buttonIcon} />
+            <Text style={styles.googleButtonText}>Continue with Google</Text>
           </Pressable>
 
           {appleAvailable && Platform.OS === 'ios' ? (
             <AppleAuthentication.AppleAuthenticationButton
-              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
               cornerRadius={12}
               style={styles.appleButton}
               onPress={handleApple}
@@ -274,20 +351,18 @@ export default function LoginScreen() {
               onPress={handleApple}
               disabled={loading}
             >
-              <Text style={styles.buttonText}>Sign in with Apple</Text>
+              <Ionicons name="logo-apple" size={20} color="#fff" style={styles.buttonIcon} />
+              <Text style={styles.buttonText}>Continue with Apple</Text>
             </Pressable>
           )}
 
-          <Text style={styles.altText}>Already have an account? Use Sign in above.</Text>
+          <Pressable onPress={handleCreateAccount} disabled={loading} style={styles.createAccountLink}>
+            <Text style={styles.altText}>Don&apos;t have an account? <Text style={styles.altTextBold}>Sign up</Text></Text>
+          </Pressable>
 
-          <Text style={styles.disclaimer}>
-            {appleAvailable && Platform.OS === 'ios' 
-              ? 'Secure authentication powered by Apple & Google' 
-              : 'Authentication methods may vary by platform'}
-          </Text>
         </Animated.View>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -303,41 +378,61 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 60,
+    marginBottom: 40,
   },
   logoContainer: {
     width: 80,
     height: 80,
-    backgroundColor: '#fff',
+    backgroundColor: '#1e293b',
     borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
-    shadowColor: '#000',
+    borderWidth: 2,
+    borderColor: '#3b82f6',
+    shadowColor: '#3b82f6',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
-  logoIcon: {
-    fontSize: 40,
-  },
   appTitle: {
-    fontSize: 42,
+    fontSize: 32,
     fontWeight: '800',
     color: '#fff',
     marginBottom: 8,
-    letterSpacing: -1,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#94a3b8',
     textAlign: 'center',
   },
   buttonContainer: {
     gap: 16,
   },
+  inputGroup: {
+    gap: 8,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  input: {
+    height: 52,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#1e293b',
+    borderWidth: 1,
+    borderColor: '#334155',
+    color: '#fff',
+    fontSize: 16,
+  },
   button: {
+    flexDirection: 'row',
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
@@ -346,11 +441,12 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   buttonPressed: {
-    opacity: 0.7,
+    opacity: 0.8,
     transform: [{ scale: 0.98 }],
   },
-  createButton: {
-    backgroundColor: '#10b981',
+  loginButton: {
+    backgroundColor: '#3b82f6',
+    marginTop: 8,
   },
   googleButton: {
     backgroundColor: '#fff',
@@ -364,25 +460,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
   },
+  buttonIcon: {
+    marginRight: 10,
+  },
   buttonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#fff',
   },
   googleButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#0f172a',
   },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#334155',
+  },
+  dividerText: {
+    color: '#64748b',
+    paddingHorizontal: 16,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  createAccountLink: {
+    marginTop: 16,
+    padding: 8,
+  },
   altText: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#94a3b8',
     textAlign: 'center',
   },
-  disclaimer: {
-    fontSize: 12,
-    color: '#64748b',
-    textAlign: 'center',
-    marginTop: 8,
+  altTextBold: {
+    color: '#3b82f6',
+    fontWeight: '700',
   },
 });
