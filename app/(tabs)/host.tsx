@@ -7,13 +7,13 @@ import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -132,6 +132,22 @@ export default function HostScreen() {
     }, 0);
   }, [paidBookings]);
 
+  const monthEarnings = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+
+    return paidBookings.reduce((sum, b) => {
+      const raw = b?.paid_at ?? b?.created_at ?? b?.start_time ?? b?.startTime;
+      const date = raw ? new Date(raw) : null;
+      if (!date) return sum;
+      if (date.getFullYear() === year && date.getMonth() === month) {
+        return sum + Number(b?.amount ?? 0);
+      }
+      return sum;
+    }, 0);
+  }, [paidBookings]);
+
   const totalBookings = bookings.length;
 
   const activeBooking = useMemo(() => (
@@ -202,6 +218,73 @@ export default function HostScreen() {
     return days;
   }, [paidBookings]);
 
+  const maxChartAmount = useMemo(() => {
+    const max = chartData.reduce(
+      (currentMax, day) => (day.amount > currentMax ? day.amount : currentMax),
+      0
+    );
+    return max > 0 ? max : 1;
+  }, [chartData]);
+
+  const monthlyCalendar = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const firstWeekday = firstDay.getDay(); // 0 (Sun) - 6 (Sat)
+
+    const dayStats: { [day: number]: { amount: number; bookings: number } } = {};
+
+    paidBookings.forEach((b) => {
+      const raw = b?.paid_at ?? b?.created_at ?? b?.start_time ?? b?.startTime;
+      const date = raw ? new Date(raw) : null;
+      if (!date) return;
+      if (date.getFullYear() !== year || date.getMonth() !== month) return;
+
+      const day = date.getDate();
+      if (!dayStats[day]) {
+        dayStats[day] = { amount: 0, bookings: 0 };
+      }
+      dayStats[day].amount += Number(b?.amount ?? 0);
+      dayStats[day].bookings += 1;
+    });
+
+    const cells: {
+      key: string;
+      day?: number;
+      amount?: number;
+      bookings?: number;
+      isToday?: boolean;
+      isEmpty?: boolean;
+    }[] = [];
+
+    for (let i = 0; i < firstWeekday; i += 1) {
+      cells.push({ key: `empty-${i}`, isEmpty: true });
+    }
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const stats = dayStats[day] ?? { amount: 0, bookings: 0 };
+      const isToday =
+        now.getDate() === day && now.getMonth() === month && now.getFullYear() === year;
+
+      cells.push({
+        key: `day-${day}`,
+        day,
+        amount: stats.amount,
+        bookings: stats.bookings,
+        isToday,
+        isEmpty: false,
+      });
+    }
+
+    const monthLabel = now.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+    return { cells, monthLabel };
+  }, [paidBookings]);
+
   const activeCount = useMemo(
     () => listings.filter((l) => l.status === 'Active').length,
     [listings]
@@ -231,7 +314,7 @@ export default function HostScreen() {
           }}
           activeOpacity={0.7}
         >
-          <Text style={[styles.statValue, { color: colors.primary }]}>${totalEarnings.toFixed(0)}</Text>
+          <Text style={[styles.statValue, { color: colors.primary }]}>${monthEarnings.toFixed(0)}</Text>
           <Text style={[styles.statLabel, { color: colors.textSecondary }]}>This Month</Text>
         </TouchableOpacity>
         <TouchableOpacity 
@@ -244,7 +327,7 @@ export default function HostScreen() {
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.statCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
-          onPress={() => Alert.alert('Total Bookings', `You've had ${totalBookings} total bookings this month.`)}
+          onPress={() => Alert.alert('Total Bookings', `You've had ${totalBookings} total bookings.`)}
           activeOpacity={0.7}
         >
             <Text style={[styles.statValue, { color: colors.primary }]}>{totalBookings}</Text>
@@ -282,7 +365,7 @@ export default function HostScreen() {
                 style={[
                   styles.miniBar,
                   { backgroundColor: colors.border },
-                  { height: day.amount > 0 ? (day.amount / Math.max(1, totalEarnings || 1)) * 60 : 4 },
+                  { height: day.amount > 0 ? (day.amount / maxChartAmount) * 60 : 4 },
                   i === chartData.length - 1 && [styles.miniBarActive, { backgroundColor: colors.primary }],
                 ]}
               />
@@ -523,59 +606,131 @@ export default function HostScreen() {
                 {earningsTab === 'week' ? 'Weekly Revenue' : 'Monthly Revenue'}
               </Text>
               <Text style={[styles.earningsSummaryValue, { color: colors.primary }]}>
-                ${earningsTab === 'week' ? weekEarnings.toFixed(2) : totalEarnings.toFixed(2)}
+                ${earningsTab === 'week' ? weekEarnings.toFixed(2) : monthEarnings.toFixed(2)}
               </Text>
             </View>
 
             <ScrollView style={styles.chartScroll}>
-              <View style={styles.chartContainer}>
-                {chartData.map((day, i) => (
-                  <TouchableOpacity 
-                    key={i} 
-                    style={styles.chartDay}
-                    onPress={() => Alert.alert(
-                      day.label,
-                      `Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}`
-                    )}
-                    activeOpacity={0.6}
-                  >
-                    <View
-                      style={[
-                        styles.chartBar,
-                        { backgroundColor: colors.primary },
-                        { height: day.amount > 0 ? (day.amount / Math.max(1, totalEarnings || 1)) * 120 : 8 },
-                      ]}
-                    />
-                    <Text style={[styles.chartLabel, { color: colors.textSecondary }]}>{day.label}</Text>
-                    <Text style={[styles.chartAmount, { color: colors.text }]}>${day.amount.toFixed(0)}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {earningsTab === 'week' ? (
+                <>
+                  <View style={styles.chartContainer}>
+                    {chartData.map((day, i) => (
+                      <TouchableOpacity 
+                        key={i} 
+                        style={styles.chartDay}
+                        onPress={() => Alert.alert(
+                          day.label,
+                          `Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}`
+                        )}
+                        activeOpacity={0.6}
+                      >
+                        <View
+                          style={[
+                            styles.chartBar,
+                            { backgroundColor: colors.primary },
+                            { height: day.amount > 0 ? (day.amount / maxChartAmount) * 120 : 8 },
+                          ]}
+                        />
+                        <Text style={[styles.chartLabel, { color: colors.textSecondary }]}>{day.label}</Text>
+                        <Text style={[styles.chartAmount, { color: colors.text }]}>${day.amount.toFixed(0)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
 
-              <View style={styles.breakdownSection}>
-                <Text style={[styles.breakdownTitle, { color: colors.text }]}>Revenue Breakdown</Text>
-                {chartData.slice(-5).reverse().map((day, i) => (
-                  <TouchableOpacity 
-                    key={i} 
-                    style={[styles.breakdownRow, { borderBottomColor: colors.border }]}
-                    onPress={() => Alert.alert(
-                      `${day.label} Details`,
-                      `Total Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}\nAverage per booking: $${day.bookings ? (day.amount / day.bookings).toFixed(2) : '0.00'}`
-                    )}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.breakdownDate, { color: colors.text }]}>{day.label}</Text>
-                      <Text style={[styles.breakdownBookings, { color: colors.textSecondary }]}>
-                        {day.bookings} bookings
-                      </Text>
-                    </View>
-                    <Text style={[styles.breakdownAmount, { color: colors.primary }]}>
-                      ${day.amount.toFixed(2)}
+                  <View style={styles.breakdownSection}>
+                    <Text style={[styles.breakdownTitle, { color: colors.text }]}>Revenue Breakdown</Text>
+                    {chartData.slice(-5).reverse().map((day, i) => (
+                      <TouchableOpacity 
+                        key={i} 
+                        style={[styles.breakdownRow, { borderBottomColor: colors.border }]}
+                        onPress={() => Alert.alert(
+                          `${day.label} Details`,
+                          `Total Revenue: $${day.amount.toFixed(2)}\nBookings: ${day.bookings}\nAverage per booking: $${day.bookings ? (day.amount / day.bookings).toFixed(2) : '0.00'}`
+                        )}
+                        activeOpacity={0.7}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.breakdownDate, { color: colors.text }]}>{day.label}</Text>
+                          <Text style={[styles.breakdownBookings, { color: colors.textSecondary }]}>
+                            {day.bookings} bookings
+                          </Text>
+                        </View>
+                        <Text style={[styles.breakdownAmount, { color: colors.primary }]}>
+                          ${day.amount.toFixed(2)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.calendarHeaderRow}>
+                    <Text style={[styles.calendarMonthLabel, { color: colors.text }]}>
+                      {monthlyCalendar.monthLabel}
                     </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                    <Text style={[styles.calendarSubLabel, { color: colors.textSecondary }]}>
+                      Tap a day to view earnings
+                    </Text>
+                  </View>
+
+                  <View style={styles.calendarWeekdaysRow}>
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => (
+                      <Text
+                        key={d}
+                        style={[styles.calendarWeekday, { color: colors.textSecondary }]}
+                      >
+                        {d}
+                      </Text>
+                    ))}
+                  </View>
+
+                  <View style={styles.calendarGrid}>
+                    {monthlyCalendar.cells.map((cell) => {
+                      if (cell.isEmpty) {
+                        return <View key={cell.key} style={styles.calendarCell} />;
+                      }
+
+                      const hasEarnings = !!cell.amount && cell.amount > 0;
+
+                      return (
+                        <TouchableOpacity
+                          key={cell.key}
+                          style={[
+                            styles.calendarCell,
+                            cell.isToday && [styles.calendarCellToday, { borderColor: colors.primary }],
+                            hasEarnings && [styles.calendarCellWithEarnings, { backgroundColor: colors.background }],
+                          ]}
+                          onPress={() => {
+                            if (!hasEarnings || !cell.day) {
+                              Alert.alert(
+                                'No earnings',
+                                `No earnings recorded for ${monthlyCalendar.monthLabel} ${cell.day ?? ''}.`,
+                              );
+                              return;
+                            }
+
+                            Alert.alert(
+                              `${monthlyCalendar.monthLabel} ${cell.day}`,
+                              `Revenue: $${cell.amount?.toFixed(2)}\nBookings: ${cell.bookings ?? 0}`,
+                            );
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.calendarDayNumber, { color: colors.text }]}>
+                            {cell.day}
+                          </Text>
+                          <Text
+                            style={[styles.calendarDayAmount, { color: colors.primary }]}
+                            numberOfLines={1}
+                          >
+                            {hasEarnings ? `$${cell.amount?.toFixed(0)}` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -1309,6 +1464,62 @@ const styles = StyleSheet.create({
   breakdownAmount: {
     fontSize: 16,
     fontWeight: '700',
+  },
+
+  // Calendar (Monthly Earnings)
+  calendarHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  calendarMonthLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  calendarSubLabel: {
+    fontSize: 12,
+  },
+  calendarWeekdaysRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 4,
+  },
+  calendarWeekday: {
+    fontSize: 11,
+    fontWeight: '600',
+    width: '14.2857%',
+    textAlign: 'center',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingBottom: 16,
+  },
+  calendarCell: {
+    width: '14.2857%',
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+    borderRadius: 10,
+  },
+  calendarCellToday: {
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  calendarCellWithEarnings: {
+  },
+  calendarDayNumber: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  calendarDayAmount: {
+    fontSize: 10,
+    fontWeight: '600',
   },
 
   // Listing Modal

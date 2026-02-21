@@ -5,10 +5,25 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Animated, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 3959; // miles
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
 
 export default function AddListingScreen() {
   const router = useRouter();
@@ -22,38 +37,69 @@ export default function AddListingScreen() {
   const [stateField, setStateField] = useState('');
   const [zip, setZip] = useState('');
   const [spots, setSpots] = useState('1');
-  
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+
   // Autocomplete state
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestionsAnim = useRef(new Animated.Value(0)).current;
 
   // Fetch address suggestions as user types
-  const fetchAddressSuggestions = async (query: string) => {
-    if (!query || query.length < 3) {
-      setSuggestions([]);
-      return;
-    }
-
-    try {
-      // Using Photon API (free OpenStreetMap-based geocoder with autocomplete)
-      const response = await fetch(
-        `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`
-      );
-      const data = await response.json();
-      if (data.features) {
-        // Only keep suggestions within the United States for now
-        const usOnly = (data.features || []).filter((f: any) => {
-          const props = f.properties || {};
-          const cc = String(props.countrycode || '').toLowerCase();
-          return !cc || cc === 'us';
-        });
-        setSuggestions(usOnly);
+  const fetchAddressSuggestions = useCallback(
+    async (query: string) => {
+      if (!query || query.length < 3) {
+        setSuggestions([]);
+        return;
       }
-    } catch (error) {
-      console.log('Autocomplete error:', error);
-    }
-  };
+
+      try {
+        // Using Photon API (free OpenStreetMap-based geocoder with autocomplete)
+        const response = await fetch(
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`
+        );
+        const data = await response.json();
+        if (data.features) {
+          // Only keep suggestions within the United States for now
+          const usOnly = (data.features || []).filter((f: any) => {
+            const props = f.properties || {};
+            const cc = String(props.countrycode || '').toLowerCase();
+            return !cc || cc === 'us';
+          });
+
+          let sorted: any[] = usOnly;
+          if (userLocation) {
+            sorted = [...usOnly].sort((a: any, b: any) => {
+              const coordsA = a.geometry?.coordinates || [];
+              const coordsB = b.geometry?.coordinates || [];
+              const lngA = coordsA[0];
+              const latA = coordsA[1];
+              const lngB = coordsB[0];
+              const latB = coordsB[1];
+
+              if (
+                typeof latA !== 'number' ||
+                typeof lngA !== 'number' ||
+                typeof latB !== 'number' ||
+                typeof lngB !== 'number'
+              ) {
+                return 0;
+              }
+
+              const distA = calculateDistance(userLocation.lat, userLocation.lng, latA, lngA);
+              const distB = calculateDistance(userLocation.lat, userLocation.lng, latB, lngB);
+              return distA - distB;
+            });
+          }
+
+          setSuggestions(sorted);
+        }
+      } catch (error) {
+        console.log('Autocomplete error:', error);
+      }
+    },
+    [userLocation]
+  );
 
   // Debounced search on street input change
   useEffect(() => {
@@ -77,7 +123,39 @@ export default function AddListingScreen() {
         clearTimeout(debounceTimer.current);
       }
     };
-  }, [street, city, stateField]);
+  }, [street, city, stateField, fetchAddressSuggestions]);
+
+  // Animate suggestions dropdown for smoother appearance
+  useEffect(() => {
+    if (showSuggestions && suggestions.length > 0) {
+      Animated.timing(suggestionsAnim, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(suggestionsAnim, {
+        toValue: 0,
+        duration: 140,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [showSuggestions, suggestions, suggestionsAnim]);
+
+  // Get user's current location to sort suggestions by proximity
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const loc = await Location.getCurrentPositionAsync({});
+        setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      } catch {
+        // ignore location errors for now
+      }
+    })();
+  }, []);
 
   // Handle selecting an autocomplete suggestion
   const handleSelectSuggestion = (feature: any) => {
@@ -96,6 +174,12 @@ export default function AddListingScreen() {
     setSuggestions([]);
     setShowSuggestions(false);
   };
+
+  const fullAddressPreview = [street, city, stateField, zip].filter(Boolean).join(', ');
+  const previewRate = fullAddressPreview
+    ? computeHourlyRate({ baseRate: DEFAULT_BASE_RATE, address: fullAddressPreview })
+    : null;
+  const estimatedMonthly = previewRate != null ? previewRate * 8 * 30 * 0.5 : null; // ~4 hours/day, 30 days, 50% occupancy
 
   const onSubmit = async () => {
     const fullAddress = `${street}${unit ? ' ' + unit : ''}, ${city}${stateField ? ', ' + stateField : ''}${zip ? ' ' + zip : ''}`.trim();
@@ -177,6 +261,8 @@ export default function AddListingScreen() {
                   return;
                 }
 
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                Alert.alert('Success', 'Your spot has been listed!');
                 router.push('/(tabs)/map');
               })();
             },
@@ -207,6 +293,9 @@ export default function AddListingScreen() {
       return;
     }
 
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert('Success', 'Your spot has been listed!');
+    
     // navigate to map to view it
     router.push('/(tabs)/map');
   };
@@ -283,6 +372,28 @@ export default function AddListingScreen() {
         <AnimatedListItem index={0} direction="down">
           <Text style={[styles.header, { color: colors.text }]}>Add New Spot</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>List your parking spot and start earning.</Text>
+          {estimatedMonthly != null && (
+            <Text style={[styles.earningsHint, { color: colors.textSecondary }]}>
+              Est. earnings ~ ${estimatedMonthly.toFixed(0)}/month
+            </Text>
+          )}
+
+          <View style={styles.stepperRow}>
+            <View style={styles.stepItem}>
+              <View style={[styles.stepCircle, styles.stepCircleActive]} />
+              <Text style={[styles.stepLabel, { color: colors.text }]}>Details</Text>
+            </View>
+            <View style={styles.stepDivider} />
+            <View style={styles.stepItem}>
+              <View style={styles.stepCircle} />
+              <Text style={[styles.stepLabel, { color: colors.textSecondary }]}>Location</Text>
+            </View>
+            <View style={styles.stepDivider} />
+            <View style={styles.stepItem}>
+              <View style={styles.stepCircle} />
+              <Text style={[styles.stepLabel, { color: colors.textSecondary }]}>Confirm</Text>
+            </View>
+          </View>
         </AnimatedListItem>
 
         <AnimatedListItem index={1} direction="up">
@@ -308,7 +419,24 @@ export default function AddListingScreen() {
             
             {/* Autocomplete suggestions dropdown */}
             {showSuggestions && suggestions.length > 0 && (
-              <View style={[styles.suggestionsContainer, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
+              <Animated.View
+                style={[
+                  styles.suggestionsContainer,
+                  {
+                    backgroundColor: colors.backgroundCard,
+                    borderColor: colors.border,
+                    opacity: suggestionsAnim,
+                    transform: [
+                      {
+                        translateY: suggestionsAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [-4, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
                 {suggestions.map((feature, index) => {
                   const props = feature.properties;
                   const displayText = [
@@ -329,7 +457,7 @@ export default function AddListingScreen() {
                     </TouchableOpacity>
                   );
                 })}
-              </View>
+              </Animated.View>
             )}
 
             <Text style={[styles.label, { color: colors.text }]}>Unit (optional)</Text>
@@ -424,6 +552,46 @@ const styles = StyleSheet.create({
   container: { padding: 16 },
   header: { fontSize: 28, fontWeight: '800', marginBottom: 4 },
   subtitle: { fontSize: 16, marginBottom: 24 },
+  earningsHint: {
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  stepItem: {
+    alignItems: 'center',
+    flexDirection: 'column',
+    flexShrink: 0,
+  },
+  stepCircle: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#6b7280',
+    backgroundColor: 'transparent',
+  },
+  stepCircleActive: {
+    borderColor: '#22c55e',
+    backgroundColor: '#22c55e',
+  },
+  stepLabel: {
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  stepDivider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#374151',
+    marginHorizontal: 4,
+    opacity: 0.6,
+  },
   card: {
     borderRadius: 16,
     padding: 20,

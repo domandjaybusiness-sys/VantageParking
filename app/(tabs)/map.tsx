@@ -1,11 +1,11 @@
 import LoadingOverlay from '@/components/ui/loading-overlay';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
-    BookingMode,
-    computeBookingPriceBreakdown,
-    DEFAULT_PARK_NOW_DURATION_MINUTES,
-    getHourlyRateForMode,
-    PARK_NOW_MIN_AVAILABILITY_MINUTES,
+  BookingMode,
+  computeBookingPriceBreakdown,
+  DEFAULT_PARK_NOW_DURATION_MINUTES,
+  getHourlyRateForMode,
+  PARK_NOW_MIN_AVAILABILITY_MINUTES,
 } from '@/lib/booking';
 import { Listing, mapSpotRow } from '@/lib/listings';
 import { DEFAULT_BASE_RATE } from '@/lib/pricing';
@@ -62,6 +62,8 @@ export default function MapScreen() {
   const radarDiameterAnim = useRef(new Animated.Value(0)).current;
   const radarLeftAnim = useRef(new Animated.Value(0)).current;
   const radarTopAnim = useRef(new Animated.Value(0)).current;
+  const userPulseAnim = useRef(new Animated.Value(0)).current;
+  const listAnim = useRef(new Animated.Value(0)).current;
   const [radiusConfirmed, setRadiusConfirmed] = useState(false);
 
   // Ensure radiusConfirmed is false when there is no search location selected.
@@ -117,6 +119,42 @@ export default function MapScreen() {
 
     return () => clearTimeout(t);
   }, [radiusConfirmed, searchLocation, radiusMiles, mapRef, computeRadarPixelSize, radarDiameterAnim, radarLeftAnim, radarTopAnim]);
+
+  // Soft pulsing animation for the user's current location dot
+  useEffect(() => {
+    if (!userLocation) return;
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(userPulseAnim, {
+          toValue: 1,
+          duration: 1400,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(userPulseAnim, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    animation.start();
+    return () => {
+      animation.stop();
+    };
+  }, [userLocation, userPulseAnim]);
+
+  // Smooth in/out animation for the list view overlay
+  useEffect(() => {
+    Animated.timing(listAnim, {
+      toValue: viewMode === 'list' ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [listAnim, viewMode]);
 
   const [unavailableNowSpotIds, setUnavailableNowSpotIds] = useState<Set<string>>(new Set());
 
@@ -674,7 +712,7 @@ export default function MapScreen() {
         const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(trimmed)}&limit=6&lang=en`;
         const res = await fetch(url, { headers: { Accept: 'application/json' } });
         const json = await res.json();
-        const next = (json.features || [])
+        const raw = (json.features || [])
           .map((feature: any) => {
             const props = feature.properties || {};
             const coords = feature.geometry?.coordinates || [];
@@ -700,9 +738,16 @@ export default function MapScreen() {
               lng,
             };
           })
-          .filter(Boolean);
+          .filter(Boolean) as { id: string; title: string; lat: number; lng: number }[];
 
-        setSearchResults(next as { id: string; title: string; lat: number; lng: number }[]);
+        const sorted = userLocation
+          ? [...raw].sort((a, b) =>
+              calculateDistance(userLocation.lat, userLocation.lng, a.lat, a.lng) -
+              calculateDistance(userLocation.lat, userLocation.lng, b.lat, b.lng)
+            )
+          : raw;
+
+        setSearchResults(sorted);
       } catch {
         setSearchResults([]);
       } finally {
@@ -711,7 +756,7 @@ export default function MapScreen() {
     }, 300);
 
     return () => clearTimeout(timeout);
-  }, [searchActive, searchText]);
+  }, [searchActive, searchText, userLocation]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}> 
@@ -796,6 +841,26 @@ export default function MapScreen() {
               void computeRadarPixelSize();
             }}
           >
+            <Animated.View
+              style={[
+                styles.userPulseRing,
+                {
+                  backgroundColor: `${colors.primary}33`,
+                  transform: [
+                    {
+                      scale: userPulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 2.4],
+                      }),
+                    },
+                  ],
+                  opacity: userPulseAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.6, 0],
+                  }),
+                },
+              ]}
+            />
             <View style={[styles.userDot, { borderColor: colors.backgroundCard, backgroundColor: colors.primary }]} />
             <Callout tooltip onPress={() => {
               setSearchLocation({ lat: userLocation.lat, lng: userLocation.lng });
@@ -919,7 +984,24 @@ export default function MapScreen() {
       </View>
 
       {viewMode === 'list' && (
-        <View style={[styles.listOverlay, { top: insets.top + 80, bottom: insets.bottom + SPACING.md }]}> 
+        <Animated.View
+          style={[
+            styles.listOverlay,
+            {
+              top: insets.top + 80,
+              bottom: insets.bottom + SPACING.md,
+              opacity: listAnim,
+              transform: [
+                {
+                  translateY: listAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [40, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        > 
           <FlatList
             data={displayedSpots}
             keyExtractor={(item) => item.id.toString()}
@@ -941,7 +1023,7 @@ export default function MapScreen() {
               </TouchableOpacity>
             )}
           />
-        </View>
+        </Animated.View>
       )}
 
       <Modal visible={searchActive} animationType="fade" transparent>
@@ -1733,6 +1815,12 @@ const styles = StyleSheet.create({
   fabIcon: {
     fontSize: 20,
     fontWeight: '700',
+  },
+  userPulseRing: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
   userDot: {
     width: 12,
