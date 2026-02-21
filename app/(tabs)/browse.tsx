@@ -48,7 +48,7 @@ export default function BrowseScreen() {
   const [processingSpotId, setProcessingSpotId] = useState<string | null>(null);
   const [bookNowModalVisible, setBookNowModalVisible] = useState(false);
   const [bookNowSpot, setBookNowSpot] = useState<Listing | null>(null);
-  const [bookNowDuration, setBookNowDuration] = useState<number>(15);
+  const [bookNowDuration, setBookNowDuration] = useState<number>(30);
   const [reserveModalVisible, setReserveModalVisible] = useState(false);
   const [reserveSpot, setReserveSpot] = useState<Listing | null>(null);
   const [reserveDate, setReserveDate] = useState<Date>(new Date());
@@ -279,7 +279,7 @@ export default function BrowseScreen() {
   // When user taps Book Now, show duration selection modal first
   const onBookNowSpot = (spot: Listing) => {
     setBookNowSpot(spot);
-    setBookNowDuration(15);
+    setBookNowDuration(30);
     setBookNowModalVisible(true);
   };
 
@@ -611,7 +611,7 @@ export default function BrowseScreen() {
                   activeOpacity={0.8}
                   disabled={processingSpotId === String(spot.id)}
                 >
-                  <Text style={[styles.tertiaryBtnText, { color: colors.text }]}>{processingSpotId === String(spot.id) ? 'Processing…' : 'Book Now'}</Text>
+                  <Text style={[styles.tertiaryBtnText, { color: colors.text }]}>{processingSpotId === String(spot.id) ? 'Processing…' : 'Park Now'}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -648,10 +648,10 @@ export default function BrowseScreen() {
       <Modal visible={bookNowModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}> 
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Start parking at</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Start parking now</Text>
             <Text style={[styles.modalAddress, { color: colors.text }]} numberOfLines={2}>{bookNowSpot?.address ?? bookNowSpot?.title ?? 'Selected spot'}</Text>
 
-            <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Select duration</Text>
+            <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Duration (defaults to 30m)</Text>
             <View style={styles.durationGrid}>
               {[
                 { m: 15, label: '15m' },

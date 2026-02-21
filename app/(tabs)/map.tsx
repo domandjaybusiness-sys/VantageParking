@@ -1,11 +1,11 @@
 import LoadingOverlay from '@/components/ui/loading-overlay';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
-  BookingMode,
-  computeBookingPriceBreakdown,
-  DEFAULT_PARK_NOW_DURATION_MINUTES,
-  getHourlyRateForMode,
-  PARK_NOW_MIN_AVAILABILITY_MINUTES,
+    BookingMode,
+    computeBookingPriceBreakdown,
+    DEFAULT_PARK_NOW_DURATION_MINUTES,
+    getHourlyRateForMode,
+    PARK_NOW_MIN_AVAILABILITY_MINUTES,
 } from '@/lib/booking';
 import { Listing, mapSpotRow } from '@/lib/listings';
 import { DEFAULT_BASE_RATE } from '@/lib/pricing';
@@ -13,9 +13,10 @@ import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, Easing, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Easing, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import MapView, { Callout, Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { DatePickerModal } from 'react-native-paper-dates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const SPACING = { xs: 8, sm: 12, md: 16, lg: 24 };
@@ -40,6 +41,20 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c;
 };
 
+const darkenHexColor = (color: string, amount = 0.16) => {
+  const hex = color.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return color;
+
+  const clamp = (value: number) => Math.max(0, Math.min(255, value));
+  const darken = (value: number) => clamp(Math.round(value * (1 - amount)));
+
+  const red = darken(parseInt(hex.slice(0, 2), 16));
+  const green = darken(parseInt(hex.slice(2, 4), 16));
+  const blue = darken(parseInt(hex.slice(4, 6), 16));
+
+  return `rgb(${red}, ${green}, ${blue})`;
+};
+
 export default function MapScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -54,6 +69,7 @@ export default function MapScreen() {
   const [searchResults, setSearchResults] = useState<{ id: string; title: string; lat: number; lng: number }[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [mapRef, setMapRef] = useState<MapView | null>(null);
+  const [isMapReady, setIsMapReady] = useState(false);
   const [searchLocation, setSearchLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
@@ -65,45 +81,21 @@ export default function MapScreen() {
   const userPulseAnim = useRef(new Animated.Value(0)).current;
   const listAnim = useRef(new Animated.Value(0)).current;
   const [radiusConfirmed, setRadiusConfirmed] = useState(false);
+  const [radarOverlayReady, setRadarOverlayReady] = useState(false);
 
   // Ensure radiusConfirmed is false when there is no search location selected.
   useEffect(() => {
     if (!searchLocation) setRadiusConfirmed(false);
   }, [searchLocation]);
 
-  const computeRadarPixelSize = useCallback(async () => {
-    if (!mapRef || !searchLocation) {
-      return;
-    }
+  const computeRadarPixelSize = useCallback(() => {
+    setRadarOverlayReady(false);
+  }, []);
 
-    try {
-      const centerPt = await (mapRef as any).pointForCoordinate({ latitude: searchLocation.lat, longitude: searchLocation.lng });
-      const latRad = (searchLocation.lat * Math.PI) / 180;
-      const metersPerDegLon = 111320 * Math.cos(latRad);
-      const radiusMeters = radiusMiles * 1609.34;
-      const deltaLng = radiusMeters / metersPerDegLon;
-      const edgeLng = searchLocation.lng + deltaLng;
-      const edgePt = await (mapRef as any).pointForCoordinate({ latitude: searchLocation.lat, longitude: edgeLng });
-      const dx = edgePt.x - centerPt.x;
-      const dy = edgePt.y - centerPt.y;
-      const pxRadius = Math.sqrt(dx * dx + dy * dy);
-      const diameter = Math.max(0, pxRadius * 2);
-      // animate diameter and position
-
-      // Smoothly animate diameter and position changes
-      Animated.parallel([
-        Animated.timing(radarDiameterAnim, { toValue: diameter, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
-        Animated.timing(radarLeftAnim, { toValue: centerPt.x - diameter / 2, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
-        Animated.timing(radarTopAnim, { toValue: centerPt.y - diameter / 2, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
-      ]).start();
-    } catch {
-      Animated.timing(radarDiameterAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
-    }
-  }, [mapRef, searchLocation, radiusMiles, radarDiameterAnim, radarLeftAnim, radarTopAnim]);
-
-  // Recompute radar pixel size whenever radius, map region, or search location changes
+  // Keep pixel-radar overlay disabled; use native map Circle for radius rendering.
   useEffect(() => {
     if (!radiusConfirmed || !searchLocation) {
+      setRadarOverlayReady(false);
       Animated.parallel([
         Animated.timing(radarDiameterAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
         Animated.timing(radarLeftAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
@@ -112,13 +104,8 @@ export default function MapScreen() {
       return;
     }
 
-    // debounce small rapid region ticks
-    const t = setTimeout(() => {
-      void computeRadarPixelSize();
-    }, 120);
-
-    return () => clearTimeout(t);
-  }, [radiusConfirmed, searchLocation, radiusMiles, mapRef, computeRadarPixelSize, radarDiameterAnim, radarLeftAnim, radarTopAnim]);
+    setRadarOverlayReady(false);
+  }, [radiusConfirmed, searchLocation, radarDiameterAnim, radarLeftAnim, radarTopAnim]);
 
   // Soft pulsing animation for the user's current location dot
   useEffect(() => {
@@ -163,7 +150,7 @@ export default function MapScreen() {
   const [bookingSheetSnap, setBookingSheetSnap] = useState<(typeof BOOKING_SNAP_POINTS)[number]>(50);
   const [bookingMode, setBookingMode] = useState<BookingMode>('parkNow');
   const [parkNowDurationMinutes, setParkNowDurationMinutes] = useState(DEFAULT_PARK_NOW_DURATION_MINUTES);
-  const [selectedDurationPreset, setSelectedDurationPreset] = useState<number | 'custom'>(30);
+  const [selectedDurationPreset, setSelectedDurationPreset] = useState<number | 'custom' | null>(null);
   const [customDurationModalVisible, setCustomDurationModalVisible] = useState(false);
   const [customDurationInput, setCustomDurationInput] = useState('');
 
@@ -171,14 +158,79 @@ export default function MapScreen() {
   const [reservationEnd, setReservationEnd] = useState<Date | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [activeField, setActiveField] = useState<'start' | 'end' | null>(null);
+  const [iosPickerDate, setIosPickerDate] = useState<Date>(new Date());
   const [processingBooking, setProcessingBooking] = useState(false);
 
   const [activeBookingBanner, setActiveBookingBanner] = useState<ActiveBookingBanner | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
-  const [showUserSearchPin, setShowUserSearchPin] = useState(false);
 
   const handledOpenBookingRef = useRef(false);
   const handledViewSpotRef = useRef(false);
+
+  const clearSearchArea = useCallback(() => {
+    setSearchLocation(null);
+    setRadiusConfirmed(false);
+    setSearchResults([]);
+  }, []);
+
+  const getDynamicMarkerOffsetPx = useCallback((snapPercent: number) => {
+    const windowHeight = Dimensions.get('window').height;
+    const sheetHeightPx = (windowHeight * snapPercent) / 100;
+    return Math.max(0, Math.min(48, sheetHeightPx * 0.08));
+  }, []);
+
+  const recenterToSpotWithOffset = useCallback(async (spot: Listing, snapPercent: number = bookingSheetSnap) => {
+    if (!mapRef || spot.latitude == null || spot.longitude == null) return;
+
+    const targetCoordinate = { latitude: spot.latitude, longitude: spot.longitude };
+    const verticalOffsetPx = getDynamicMarkerOffsetPx(snapPercent);
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    try {
+      const camera = await (mapRef as any).getCamera?.();
+      const currentZoom = camera?.zoom;
+      const normalizeZoom = currentZoom != null && currentZoom < 12;
+      const normalizedZoomLevel = 12.5;
+
+      if (normalizeZoom) {
+        mapRef.animateCamera(
+          {
+            center: targetCoordinate,
+            zoom: normalizedZoomLevel,
+          },
+          { duration: 360 }
+        );
+        await wait(380);
+      }
+
+      const point = await (mapRef as any).pointForCoordinate(targetCoordinate);
+      const shiftedPoint = {
+        x: point.x,
+        y: point.y + verticalOffsetPx,
+      };
+      const newCenter = await (mapRef as any).coordinateForPoint(shiftedPoint);
+
+      mapRef.animateCamera(
+        {
+          center: newCenter,
+          ...(currentZoom != null
+            ? { zoom: normalizeZoom ? normalizedZoomLevel : currentZoom }
+            : {}),
+        },
+        { duration: 380 }
+      );
+    } catch {
+      mapRef.animateToRegion(
+        {
+          latitude: spot.latitude,
+          longitude: spot.longitude,
+          latitudeDelta: 0.03,
+          longitudeDelta: 0.03,
+        },
+        420
+      );
+    }
+  }, [bookingSheetSnap, getDynamicMarkerOffsetPx, mapRef]);
 
   const readSingleParam = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 
@@ -366,8 +418,10 @@ export default function MapScreen() {
     setProcessingBooking(false);
 
     if (mode === 'parkNow') {
+      setSelectedDurationPreset(null);
+      setParkNowDurationMinutes(DEFAULT_PARK_NOW_DURATION_MINUTES);
       const start = now;
-      const end = new Date(start.getTime() + parkNowDurationMinutes * 60000);
+      const end = new Date(start.getTime() + DEFAULT_PARK_NOW_DURATION_MINUTES * 60000);
       setReservationStart(start);
       setReservationEnd(end);
       return;
@@ -405,6 +459,27 @@ export default function MapScreen() {
     }
   }, [parkNowDurationMinutes, params.date, params.endTime, params.startTime]);
 
+  const onMarkerPress = useCallback(async (spot: Listing) => {
+    const targetSnap: (typeof BOOKING_SNAP_POINTS)[number] = 50;
+    setSelectedSpot(spot);
+    await recenterToSpotWithOffset(spot, targetSnap);
+    openSheetForSpot(spot, 'parkNow');
+    setBookingSheetSnap(targetSnap);
+    setBookingSheetVisible(true);
+  }, [openSheetForSpot, recenterToSpotWithOffset]);
+
+  const onSpotSelectWithCamera = useCallback(async (
+    spot: Listing,
+    mode: BookingMode = 'parkNow',
+    targetSnap: (typeof BOOKING_SNAP_POINTS)[number] = 50
+  ) => {
+    setSelectedSpot(spot);
+    await recenterToSpotWithOffset(spot, targetSnap);
+    openSheetForSpot(spot, mode);
+    setBookingSheetSnap(targetSnap);
+    setBookingSheetVisible(true);
+  }, [openSheetForSpot, recenterToSpotWithOffset]);
+
   const focusedSpotFromParams = useCallback((): Listing | null => {
     if (!isViewSpot || !focusCoordinate) return null;
     const spotId = readSingleParam(params.spotId as string | string[] | undefined);
@@ -438,8 +513,8 @@ export default function MapScreen() {
     if (!target) return;
 
     handledOpenBookingRef.current = true;
-    openSheetForSpot(target, 'reserve');
-  }, [openSheetForSpot, params.openBooking, params.spotId, spots]);
+    void onSpotSelectWithCamera(target, 'reserve');
+  }, [onSpotSelectWithCamera, params.openBooking, params.spotId, spots]);
 
   useEffect(() => {
     if (params.viewSpot !== 'true') {
@@ -454,8 +529,8 @@ export default function MapScreen() {
     if (!target) return;
 
     handledViewSpotRef.current = true;
-    openSheetForSpot(target, 'parkNow');
-  }, [focusedSpotFromParams, openSheetForSpot, params.spotId, params.viewSpot]);
+    void onSpotSelectWithCamera(target, 'parkNow');
+  }, [focusedSpotFromParams, onSpotSelectWithCamera, params.spotId, params.viewSpot]);
 
   const applyParkNowDuration = useCallback((rawMinutes: number, preset: number | 'custom') => {
     const minutes = Math.min(12 * 60, Math.max(30, Math.round(rawMinutes)));
@@ -466,16 +541,8 @@ export default function MapScreen() {
     setReservationEnd(new Date(start.getTime() + minutes * 60000));
   }, []);
 
-  const openDatePickerForField = (field: 'start' | 'end') => {
-    if (field === 'end' && !reservationStart) return;
-    setActiveField(field);
-    setPickerOpen(true);
-  };
-
-  const onSelectDate = (day: Date) => {
-    if (!activeField) return;
-
-    if (activeField === 'start') {
+  const applySelectedDateForField = (field: 'start' | 'end', day: Date) => {
+    if (field === 'start') {
       const sourceStart = reservationStart ?? new Date();
       const nextStart = new Date(
         day.getFullYear(),
@@ -491,9 +558,6 @@ export default function MapScreen() {
       if (reservationEnd && reservationEnd.getTime() < nextStart.getTime()) {
         setReservationEnd(null);
       }
-
-      setPickerOpen(false);
-      setActiveField(null);
       return;
     }
 
@@ -515,8 +579,46 @@ export default function MapScreen() {
     }
 
     setReservationEnd(nextEnd);
+  };
+
+  const openDatePickerForField = (field: 'start' | 'end') => {
+    if (field === 'end' && !reservationStart) return;
+
+    const sourceDate = field === 'start'
+      ? (reservationStart ?? new Date())
+      : (reservationEnd ?? reservationStart ?? new Date());
+
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: sourceDate,
+        mode: 'date',
+        display: 'calendar',
+        minimumDate: field === 'end' ? (reservationStart ?? undefined) : undefined,
+        onChange: (event, selectedDate) => {
+          if (event.type !== 'set' || !selectedDate) return;
+          applySelectedDateForField(field, selectedDate);
+        },
+      });
+      return;
+    }
+
+    setIosPickerDate(sourceDate);
+    setActiveField(field);
+    setPickerOpen(true);
+  };
+
+  const onSelectDate = (day: Date) => {
+    if (!activeField) return;
+    applySelectedDateForField(activeField, day);
+  };
+
+  const closeNativePicker = () => {
     setPickerOpen(false);
     setActiveField(null);
+  };
+
+  const onNativePickerChange = (_event: any, date?: Date) => {
+    if (date) setIosPickerDate(date);
   };
 
   const checkOverlap = useCallback(async (spotId: string, start: Date, end: Date) => {
@@ -536,15 +638,29 @@ export default function MapScreen() {
     return { blocked: (data ?? []).length > 0, error: null as string | null };
   }, []);
 
+  const effectiveBookingWindow = useMemo(() => {
+    if (!selectedSpot) return null;
+
+    if (bookingMode === 'parkNow') {
+      const start = reservationStart ?? new Date();
+      const minutes = Math.max(30, parkNowDurationMinutes || DEFAULT_PARK_NOW_DURATION_MINUTES);
+      const end = reservationEnd ?? new Date(start.getTime() + minutes * 60000);
+      return { start, end };
+    }
+
+    if (!reservationStart || !reservationEnd) return null;
+    return { start: reservationStart, end: reservationEnd };
+  }, [bookingMode, parkNowDurationMinutes, reservationEnd, reservationStart, selectedSpot]);
+
   const bookingPrice = useMemo(() => {
-    if (!selectedSpot || !reservationStart || !reservationEnd) return null;
+    if (!selectedSpot || !effectiveBookingWindow) return null;
     return computeBookingPriceBreakdown({
       mode: bookingMode,
-      start: reservationStart,
-      end: reservationEnd,
+      start: effectiveBookingWindow.start,
+      end: effectiveBookingWindow.end,
       hostRate: selectedSpot.pricePerHour,
     });
-  }, [bookingMode, reservationEnd, reservationStart, selectedSpot]);
+  }, [bookingMode, effectiveBookingWindow, selectedSpot]);
 
   const selectedSpotUnavailable = selectedSpot ? unavailableNowSpotIds.has(String(selectedSpot.id)) : false;
 
@@ -571,9 +687,12 @@ export default function MapScreen() {
   };
 
   const handleConfirmAndPay = async () => {
-    if (!selectedSpot || !reservationStart || !reservationEnd || !bookingPrice) return;
+    if (!selectedSpot || !bookingPrice || !effectiveBookingWindow) return;
 
-    if (bookingMode === 'reserve' && reservationEnd.getTime() < reservationStart.getTime()) {
+    const bookingStart = effectiveBookingWindow.start;
+    const bookingEnd = effectiveBookingWindow.end;
+
+    if (bookingMode === 'reserve' && bookingEnd.getTime() < bookingStart.getTime()) {
       Alert.alert('Invalid dates', 'End date cannot be before start date.');
       return;
     }
@@ -597,7 +716,7 @@ export default function MapScreen() {
 
     setProcessingBooking(true);
 
-    const overlapResult = await checkOverlap(selectedSpot.id, reservationStart, reservationEnd);
+    const overlapResult = await checkOverlap(selectedSpot.id, bookingStart, bookingEnd);
     if (overlapResult.error) {
       setProcessingBooking(false);
       Alert.alert('Availability check failed', overlapResult.error);
@@ -616,8 +735,8 @@ export default function MapScreen() {
     const basePayload = {
       spot_id: selectedSpot.id,
       user_id: user.id,
-      start_time: reservationStart.toISOString(),
-      end_time: reservationEnd.toISOString(),
+      start_time: bookingStart.toISOString(),
+      end_time: bookingEnd.toISOString(),
       status,
       total_price: bookingPrice.total,
       platform_fee: bookingPrice.platformFee,
@@ -634,8 +753,8 @@ export default function MapScreen() {
         const { error: fallbackError } = await supabase.from('bookings').insert({
           spot_id: selectedSpot.id,
           user_id: user.id,
-          start_time: reservationStart.toISOString(),
-          end_time: reservationEnd.toISOString(),
+          start_time: bookingStart.toISOString(),
+          end_time: bookingEnd.toISOString(),
           status,
           created_at: new Date().toISOString(),
         });
@@ -696,6 +815,12 @@ export default function MapScreen() {
   }, [radiusConfirmed, radiusMiles, searchLocation, spots, selectedFilters]);
 
   const searchBarLabel = searchText || 'Find parking near…';
+  const hasActiveSearchArea = !!searchLocation || radiusConfirmed;
+  const confirmDisabled = processingBooking
+    || !selectedSpot
+    || (bookingMode === 'parkNow'
+      ? selectedSpotUnavailable
+      : !bookingPrice || !reservationStart || !reservationEnd);
 
   useEffect(() => {
     if (!searchActive) return;
@@ -766,6 +891,7 @@ export default function MapScreen() {
         ref={setMapRef}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
+        onMapReady={() => setIsMapReady(true)}
         initialRegion={{
           latitude: 37.7749,
           longitude: -122.4194,
@@ -781,7 +907,7 @@ export default function MapScreen() {
             zIndex={999}
             onPress={() => {
               const target = focusedSpotFromParams();
-              if (target) openSheetForSpot(target, 'parkNow');
+              if (target) void onSpotSelectWithCamera(target, 'parkNow');
             }}
           >
             <View style={[styles.focusPricePill, { backgroundColor: colors.primary }]}>
@@ -792,7 +918,7 @@ export default function MapScreen() {
           </Marker>
         )}
 
-        {searchLocation && radiusConfirmed && (
+        {searchLocation && radiusConfirmed && !radarOverlayReady && (
           <Circle
             center={{ latitude: searchLocation.lat, longitude: searchLocation.lng }}
             radius={radiusMiles * 1609.34}
@@ -805,19 +931,31 @@ export default function MapScreen() {
         {displayedSpots.map((spot) => (
           (() => {
             const unavailable = unavailableNowSpotIds.has(String(spot.id));
+            const isSelected = selectedSpot?.id === spot.id;
             return (
           <Marker
             key={spot.id}
             coordinate={{ latitude: spot.latitude!, longitude: spot.longitude! }}
-            onPress={() => openSheetForSpot(spot, 'parkNow')}
+            onPress={() => {
+              void onMarkerPress(spot);
+            }}
             tracksViewChanges={false}
             tracksInfoWindowChanges={false}
+            zIndex={isSelected ? 600 : 20}
           >
             <View
               style={[
                 styles.pricePill,
                 { backgroundColor: unavailable ? colors.border : colors.primary },
-                selectedSpot?.id === spot.id ? [styles.pricePillSelected, { borderColor: colors.text }] : undefined,
+                isSelected
+                  ? [
+                    styles.pricePillSelected,
+                    {
+                      borderColor: colors.text,
+                      backgroundColor: unavailable ? colors.border : colors.primary,
+                    },
+                  ]
+                  : undefined,
               ]}
             >
               <Text style={styles.pillText}>${getHourlyRateForMode(spot.pricePerHour ?? DEFAULT_BASE_RATE, 'parkNow').toFixed(0)}</Text>
@@ -838,7 +976,6 @@ export default function MapScreen() {
               if (mapRef) {
                 mapRef.animateToRegion({ latitude: userLocation.lat, longitude: userLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
               }
-              void computeRadarPixelSize();
             }}
           >
             <Animated.View
@@ -869,7 +1006,6 @@ export default function MapScreen() {
               if (mapRef) {
                 mapRef.animateToRegion({ latitude: userLocation.lat, longitude: userLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
               }
-              void computeRadarPixelSize();
             }}>
               <View style={{ padding: 8, backgroundColor: colors.backgroundCard, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth }}>
                 <Text style={{ color: colors.text }}>Search nearby</Text>
@@ -878,23 +1014,10 @@ export default function MapScreen() {
           </Marker>
         )}
 
-        {/* Search-pin placed at searchLocation (used when FAB pressed) */}
-        {showUserSearchPin && searchLocation && (
-          <Marker
-            key="__user_search_pin"
-            coordinate={{ latitude: searchLocation.lat, longitude: searchLocation.lng }}
-            tracksViewChanges={false}
-            pinColor={colors.primary}
-            onPress={() => {
-              setViewMode('map');
-              if (mapRef) mapRef.animateToRegion({ latitude: searchLocation.lat, longitude: searchLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
-            }}
-          />
-        )}
       </MapView>
 
         {/* Pixel-accurate radar overlay (falls back to map Circle if compute fails) */}
-        {searchLocation && radiusConfirmed && (
+        {searchLocation && radiusConfirmed && radarOverlayReady && (
           <Animated.View pointerEvents="none" style={{
             position: 'absolute',
             left: radarLeftAnim,
@@ -961,7 +1084,6 @@ export default function MapScreen() {
                     setRadiusConfirmed(true);
                     if (mapRef) {
                       mapRef.animateToRegion({ latitude: searchLocation.lat, longitude: searchLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
-                      void computeRadarPixelSize();
                     }
                   } else {
                     // don't enable radius unless a search location is selected
@@ -1010,8 +1132,8 @@ export default function MapScreen() {
               <TouchableOpacity
                 style={[styles.listCard, { backgroundColor: colors.backgroundCard }]}
                 onPress={() => {
-                  openSheetForSpot(item, 'parkNow');
                   setViewMode('map');
+                  void onSpotSelectWithCamera(item, 'parkNow');
                 }}
                 activeOpacity={0.8}
               >
@@ -1075,8 +1197,7 @@ export default function MapScreen() {
               <TouchableOpacity
                 style={[styles.confirmCancelButton, { borderColor: colors.border }]}
                 onPress={() => {
-                  setSearchLocation(null);
-                  setRadiusConfirmed(false);
+                  clearSearchArea();
                   setSearchActive(false);
                 }}
                 activeOpacity={0.8}
@@ -1217,7 +1338,9 @@ export default function MapScreen() {
                   </View>
 
                   <Text style={[styles.parkNowMeta, { color: colors.textSecondary }]}>Start: Now</Text>
-                  <Text style={[styles.parkNowMeta, { color: colors.textSecondary }]}>Current: {formatMinutesLabel(parkNowDurationMinutes)}</Text>
+                  <Text style={[styles.parkNowMeta, { color: colors.textSecondary }]}>
+                    Current: {selectedDurationPreset == null ? `Default ${formatMinutesLabel(DEFAULT_PARK_NOW_DURATION_MINUTES)}` : formatMinutesLabel(parkNowDurationMinutes)}
+                  </Text>
                   <Text style={[styles.parkNowMeta, { color: colors.textSecondary }]}>Ends at: {reservationEnd ? reservationEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</Text>
                   <Text style={[styles.parkNowMeta, { color: colors.textSecondary }]}>Total: ${bookingPrice?.total.toFixed(2) ?? '0.00'}</Text>
                 </View>
@@ -1285,7 +1408,7 @@ export default function MapScreen() {
                 style={[styles.paymentButton, { backgroundColor: colors.primary }]}
                 onPress={handleConfirmAndPay}
                 activeOpacity={0.85}
-                disabled={processingBooking || !selectedSpot || !bookingPrice}
+                disabled={confirmDisabled}
               >
                 <Text style={styles.paymentButtonText}>
                   {processingBooking ? 'Processing...' : `Confirm & Pay $${bookingPrice?.total.toFixed(2) ?? '0.00'}`}
@@ -1355,60 +1478,71 @@ export default function MapScreen() {
       >
         <TouchableOpacity
           style={[styles.fabButton, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
-          onPress={async () => {
-            if (!userLocation) {
-              try {
-                const { status } = await Location.requestForegroundPermissionsAsync();
-                if (status !== 'granted') return;
-                const pos = await Location.getCurrentPositionAsync({});
-                const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                setUserLocation(coords);
-                setSearchLocation(coords);
-              } catch {
-                return;
-              }
-            } else {
-              setSearchLocation({ lat: userLocation.lat, lng: userLocation.lng });
+          onPress={() => {
+            if (hasActiveSearchArea) {
+              clearSearchArea();
+              return;
             }
 
+            const target = userLocation ?? searchLocation;
+            if (!target) {
+              Alert.alert('Location unavailable', 'Current location is still loading. Please try again in a moment.');
+              return;
+            }
+
+            setSearchLocation({ lat: target.lat, lng: target.lng });
             setRadiusConfirmed(true);
-            setShowUserSearchPin((s) => !s);
             setViewMode('map');
-            if (mapRef && searchLocation == null) {
-              // if searchLocation was just set above, prefer userLocation
-              const target = userLocation ?? null;
-              if (target) mapRef.animateToRegion({ latitude: target.lat, longitude: target.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
-            } else if (mapRef && searchLocation) {
-              mapRef.animateToRegion({ latitude: searchLocation.lat, longitude: searchLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+            if (!isMapReady) {
+              return;
             }
-
-            void computeRadarPixelSize();
+            if (mapRef) {
+              mapRef.animateToRegion({ latitude: target.lat, longitude: target.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+            }
           }}
           activeOpacity={0.85}
         >
-          <Text style={[styles.fabIcon, { color: colors.text }]}>📍</Text>
+          <Text style={[styles.fabIcon, { color: colors.text }]}>{hasActiveSearchArea ? '✕' : '📍'}</Text>
         </TouchableOpacity>
       </View>
 
-      <DatePickerModal
-        locale="en"
-        mode="single"
-        visible={pickerOpen}
-        date={activeField === 'start' ? (reservationStart ?? undefined) : (reservationEnd ?? undefined)}
-        onDismiss={() => {
-          setPickerOpen(false);
-          setActiveField(null);
-        }}
-        onConfirm={({ date }) => {
-          if (date) {
-            onSelectDate(date);
-            return;
-          }
-          setPickerOpen(false);
-          setActiveField(null);
-        }}
-        validRange={activeField === 'end' && reservationStart ? { startDate: reservationStart } : undefined}
-      />
+      {pickerOpen && activeField && Platform.OS === 'ios' && (
+        <Modal transparent animationType="slide" visible={pickerOpen}>
+          <View style={styles.confirmOverlay}>
+            <View style={[styles.confirmContent, { backgroundColor: colors.backgroundCard }]}> 
+              <Text style={[styles.confirmTitle, { color: colors.text }]}>
+                {activeField === 'start' ? 'Select start date' : 'Select end date'}
+              </Text>
+              <DateTimePicker
+                value={iosPickerDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
+                onChange={onNativePickerChange}
+                minimumDate={activeField === 'end' ? (reservationStart ?? undefined) : undefined}
+              />
+              <View style={styles.confirmActions}>
+                <TouchableOpacity
+                  style={[styles.confirmButton, { backgroundColor: colors.primary }]}
+                  onPress={() => {
+                    onSelectDate(iosPickerDate);
+                    closeNativePicker();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.confirmButtonText}>Done</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.confirmCancelButton, { borderColor: colors.border }]}
+                  onPress={closeNativePicker}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.confirmCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }

@@ -343,7 +343,7 @@ export default function HomeScreen() {
           </View>
           <Text style={[styles.greeting, { color: colors.textSecondary }]}>{greeting},</Text>
           <Text style={[styles.userName, { color: colors.text }]}>{userName}</Text>
-          <Text style={[styles.summary, { color: colors.textSecondary }]}>{spotCount} spots currently available to browse.</Text>
+          <Text style={[styles.summary, { color: colors.textSecondary }]}>{spotCount} spots currently available to browse. Park Now defaults to 30 min.</Text>
         </View>
       </AnimatedListItem>
 
