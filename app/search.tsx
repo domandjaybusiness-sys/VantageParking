@@ -4,6 +4,7 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+    Alert,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
@@ -40,8 +41,14 @@ export default function SearchScreen() {
       try {
         const geocoded = await Location.geocodeAsync(location);
         if (geocoded.length > 0) {
-          lat = geocoded[0].latitude;
-          lng = geocoded[0].longitude;
+          const first = geocoded[0] as any;
+          const country = String(first.country || first.isoCountryCode || '').toLowerCase();
+          if (country && country !== 'united states' && country !== 'us' && country !== 'usa') {
+            Alert.alert('Location restricted', 'Please search for locations within the United States.');
+          } else {
+            lat = first.latitude;
+            lng = first.longitude;
+          }
         }
       } catch (e) {
         console.log('Geocoding failed', e);

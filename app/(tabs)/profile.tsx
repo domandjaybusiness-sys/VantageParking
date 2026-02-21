@@ -1,6 +1,7 @@
 import { AnimatedListItem } from '@/components/ui/animated-list-item';
 import { AnimatedPressableButton } from '@/components/ui/animated-pressable';
 import { IconSymbol, IconSymbolName } from '@/components/ui/icon-symbol';
+import LoadingOverlay from '@/components/ui/loading-overlay';
 import { useTheme } from '@/contexts/ThemeContext';
 import { clearAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -21,29 +22,35 @@ export default function ProfileScreen() {
   const [emailVerified, setEmailVerified] = useState(false);
   const [phoneVerified] = useState(false);
   const userRating = 4.9;
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
   useEffect(() => {
     const loadUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      setLoadingProfile(true);
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      if (!user) {
-        setUserName('Signed out');
-        setUserEmail('');
-        setEmailVerified(false);
-        return;
+        if (!user) {
+          setUserName('Signed out');
+          setUserEmail('');
+          setEmailVerified(false);
+          return;
+        }
+
+        const name =
+          user.user_metadata?.name ||
+          user.user_metadata?.full_name ||
+          user.email ||
+          'Vantage member';
+
+        setUserName(String(name));
+        setUserEmail(user.email ?? '');
+        setEmailVerified(Boolean(user.email_confirmed_at));
+      } finally {
+        setLoadingProfile(false);
       }
-
-      const name =
-        user.user_metadata?.name ||
-        user.user_metadata?.full_name ||
-        user.email ||
-        'Vantage member';
-
-      setUserName(String(name));
-      setUserEmail(user.email ?? '');
-      setEmailVerified(Boolean(user.email_confirmed_at));
     };
 
     loadUser();
@@ -56,6 +63,9 @@ export default function ProfileScreen() {
         break;
       case 'Parking History':
         router.push('/host');
+        break;
+      case 'Reservations':
+        router.push('/reservations');
         break;
       case 'Settings':
         router.push('/settings');
@@ -100,8 +110,8 @@ export default function ProfileScreen() {
     if (phoneVerified) {
       Alert.alert('Phone Verified', 'Your phone is already verified');
     } else {
-      // Navigate to phone verification screen
-      Alert.alert('Phone Verification', 'Phone verification screen coming soon');
+      // Navigate to settings where phone can be managed
+      router.push('/settings');
     }
   };
 
@@ -128,6 +138,7 @@ export default function ProfileScreen() {
 
   // make sure icons match the names defined in IconSymbol
   const menuItems: { title: string; icon: IconSymbolName }[] = [
+    { title: 'Reservations', icon: 'clock' },
     { title: 'Wallet', icon: 'creditcard' },
     { title: 'Parking History', icon: 'clock' },
     { title: 'Settings', icon: 'gearshape' },
@@ -140,6 +151,7 @@ export default function ProfileScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + 8 }}
     >
+      <LoadingOverlay visible={loadingProfile} text="Loading profile…" />
       <AnimatedListItem index={0} direction="down">
         <View style={[styles.profileHeader, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
           <IconSymbol name="person.crop.circle" size={96} color={colors.text} />
@@ -147,6 +159,9 @@ export default function ProfileScreen() {
           {userEmail ? (
             <Text style={[styles.email, { color: colors.textSecondary }]}>{userEmail}</Text>
           ) : null}
+          <TouchableOpacity style={[styles.editProfileBtn, { borderColor: colors.border }]} onPress={() => router.push('/settings')} activeOpacity={0.8}>
+            <Text style={[styles.editProfileText, { color: colors.primary }]}>Edit profile</Text>
+          </TouchableOpacity>
           <Text style={[styles.rating, { color: colors.primary }]}>{userRating.toFixed(1)} ★</Text>
         </View>
       </AnimatedListItem>
@@ -472,5 +487,16 @@ const styles = StyleSheet.create({
   supportCancelText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  editProfileBtn: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  editProfileText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

@@ -1,3 +1,4 @@
+import LoadingOverlay from '@/components/ui/loading-overlay';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
     BookingMode,
@@ -9,10 +10,11 @@ import {
 import { Listing, mapSpotRow } from '@/lib/listings';
 import { DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
+import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Alert, Animated, Easing, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import MapView, { Callout, Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { DatePickerModal } from 'react-native-paper-dates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -45,6 +47,7 @@ export default function MapScreen() {
   const params = useLocalSearchParams();
 
   const [spots, setSpots] = useState<Listing[]>([]);
+  const [loadingSpots, setLoadingSpots] = useState(false);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [searchActive, setSearchActive] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -52,8 +55,69 @@ export default function MapScreen() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [mapRef, setMapRef] = useState<MapView | null>(null);
   const [searchLocation, setSearchLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [radiusMiles] = useState(5);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [radiusMiles, setRadiusMiles] = useState(5);
+  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
+  const radarDiameterAnim = useRef(new Animated.Value(0)).current;
+  const radarLeftAnim = useRef(new Animated.Value(0)).current;
+  const radarTopAnim = useRef(new Animated.Value(0)).current;
   const [radiusConfirmed, setRadiusConfirmed] = useState(false);
+
+  // Ensure radiusConfirmed is false when there is no search location selected.
+  useEffect(() => {
+    if (!searchLocation) setRadiusConfirmed(false);
+  }, [searchLocation]);
+
+  const computeRadarPixelSize = useCallback(async () => {
+    if (!mapRef || !searchLocation) {
+      return;
+    }
+
+    try {
+      const centerPt = await (mapRef as any).pointForCoordinate({ latitude: searchLocation.lat, longitude: searchLocation.lng });
+      const latRad = (searchLocation.lat * Math.PI) / 180;
+      const metersPerDegLon = 111320 * Math.cos(latRad);
+      const radiusMeters = radiusMiles * 1609.34;
+      const deltaLng = radiusMeters / metersPerDegLon;
+      const edgeLng = searchLocation.lng + deltaLng;
+      const edgePt = await (mapRef as any).pointForCoordinate({ latitude: searchLocation.lat, longitude: edgeLng });
+      const dx = edgePt.x - centerPt.x;
+      const dy = edgePt.y - centerPt.y;
+      const pxRadius = Math.sqrt(dx * dx + dy * dy);
+      const diameter = Math.max(0, pxRadius * 2);
+      // animate diameter and position
+
+      // Smoothly animate diameter and position changes
+      Animated.parallel([
+        Animated.timing(radarDiameterAnim, { toValue: diameter, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
+        Animated.timing(radarLeftAnim, { toValue: centerPt.x - diameter / 2, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
+        Animated.timing(radarTopAnim, { toValue: centerPt.y - diameter / 2, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
+      ]).start();
+    } catch {
+      Animated.timing(radarDiameterAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+    }
+  }, [mapRef, searchLocation, radiusMiles, radarDiameterAnim, radarLeftAnim, radarTopAnim]);
+
+  // Recompute radar pixel size whenever radius, map region, or search location changes
+  useEffect(() => {
+    if (!radiusConfirmed || !searchLocation) {
+      Animated.parallel([
+        Animated.timing(radarDiameterAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
+        Animated.timing(radarLeftAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
+        Animated.timing(radarTopAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
+      ]).start();
+      return;
+    }
+
+    // debounce small rapid region ticks
+    const t = setTimeout(() => {
+      void computeRadarPixelSize();
+    }, 120);
+
+    return () => clearTimeout(t);
+  }, [radiusConfirmed, searchLocation, radiusMiles, mapRef, computeRadarPixelSize, radarDiameterAnim, radarLeftAnim, radarTopAnim]);
+
   const [unavailableNowSpotIds, setUnavailableNowSpotIds] = useState<Set<string>>(new Set());
 
   const [selectedSpot, setSelectedSpot] = useState<Listing | null>(null);
@@ -73,6 +137,7 @@ export default function MapScreen() {
 
   const [activeBookingBanner, setActiveBookingBanner] = useState<ActiveBookingBanner | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
+  const [showUserSearchPin, setShowUserSearchPin] = useState(false);
 
   const handledOpenBookingRef = useRef(false);
   const handledViewSpotRef = useRef(false);
@@ -103,15 +168,32 @@ export default function MapScreen() {
     return { title, address, price };
   }, [params.spotAddress, params.spotTitle, params.viewPrice]);
 
-  const fetchSpots = useCallback(async () => {
-    const { data, error } = await supabase.from('spots').select('*').order('created_at', { ascending: false });
-    if (error) {
-      setSpots([]);
-      return;
+  // Apply radius and view mode from incoming params (e.g., from Home "Find near me")
+  useEffect(() => {
+    const r = readSingleParam(params.radius as string | string[] | undefined);
+    if (r) {
+      const n = Number(r);
+      if (Number.isFinite(n)) setRadiusMiles(n);
     }
 
-    const mapped = (data ?? []).map(mapSpotRow).filter((spot) => spot.latitude != null && spot.longitude != null);
-    setSpots(mapped);
+    const show = readSingleParam(params.showList as string | string[] | undefined);
+    if (show === 'true') setViewMode('list');
+  }, [params.radius, params.showList]);
+
+  const fetchSpots = useCallback(async () => {
+    try {
+      setLoadingSpots(true);
+      const { data, error } = await supabase.from('spots').select('*').order('created_at', { ascending: false });
+      if (error) {
+        setSpots([]);
+        return;
+      }
+
+      const mapped = (data ?? []).map(mapSpotRow).filter((spot) => spot.latitude != null && spot.longitude != null);
+      setSpots(mapped);
+    } finally {
+      setLoadingSpots(false);
+    }
   }, []);
 
   const refreshUnavailableNow = useCallback(async () => {
@@ -200,14 +282,11 @@ export default function MapScreen() {
   useEffect(() => {
     if (!focusCoordinate || !mapRef) return;
 
-    if (isViewSpot) {
-      setSearchLocation(null);
-      setRadiusConfirmed(false);
-    } else {
-      setSearchLocation(focusCoordinate);
-      setRadiusConfirmed(true);
-    }
-
+    // Do not set `searchLocation` or enable `radiusConfirmed` automatically here
+    // because that can produce an unexpected circle overlay. Only animate the
+    // map to the focused coordinate (e.g., when tapping a spot or navigating
+    // with a spotId) — leave searchLocation unchanged so the radar/circle stays hidden
+    // until the user explicitly searches or selects a radius.
     mapRef.animateToRegion({
       latitude: focusCoordinate.lat,
       longitude: focusCoordinate.lng,
@@ -215,6 +294,30 @@ export default function MapScreen() {
       longitudeDelta: isViewSpot ? 0.012 : 0.05,
     }, 1000);
   }, [focusCoordinate, isViewSpot, mapRef]);
+
+  // On first mount, try to get user's current location and center the map there.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const pos = await Location.getCurrentPositionAsync({});
+        if (!mounted) return;
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setUserLocation(coords);
+        // Only animate the map if the user hasn't explicitly focused a different coordinate
+        if (mapRef && !focusCoordinate) {
+          mapRef.animateToRegion({ latitude: coords.lat, longitude: coords.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 800);
+        }
+      } catch {
+        // ignore location errors silently
+      }
+    })();
+
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openSheetForSpot = useCallback((spot: Listing, mode: BookingMode = 'parkNow') => {
     const now = new Date();
@@ -538,8 +641,21 @@ export default function MapScreen() {
         })
       : spots;
 
-    return source;
-  }, [radiusConfirmed, radiusMiles, searchLocation, spots]);
+    // Apply selected filters (if any). If selectedFilters is empty or contains 'available', show all.
+    const activeFilters = selectedFilters || [];
+    if (activeFilters.length === 0 || activeFilters.includes('available')) return source;
+
+    const filtered = source.filter((spot) => {
+      return activeFilters.some((f) => {
+        if (f === 'under10') return (spot.pricePerHour ?? 0) < 10;
+        if (f === 'driveway') return String(spot.title || '').toLowerCase().includes('driveway');
+        if (f === 'garage') return String(spot.title || '').toLowerCase().includes('garage');
+        return true;
+      });
+    });
+
+    return filtered;
+  }, [radiusConfirmed, radiusMiles, searchLocation, spots, selectedFilters]);
 
   const searchBarLabel = searchText || 'Find parking near…';
 
@@ -565,6 +681,9 @@ export default function MapScreen() {
             const lng = coords[0];
             const lat = coords[1];
             if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+
+            const country = String(props.countrycode || '').toLowerCase();
+            if (country && country !== 'us') return null;
 
             const title = [
               props.housenumber,
@@ -662,7 +781,70 @@ export default function MapScreen() {
             );
           })()
         ))}
+        {userLocation && (
+          <Marker
+            key="__user_loc"
+            coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
+            tracksViewChanges={false}
+            onPress={() => {
+              setSearchLocation({ lat: userLocation.lat, lng: userLocation.lng });
+              setRadiusConfirmed(true);
+              setViewMode('map');
+              if (mapRef) {
+                mapRef.animateToRegion({ latitude: userLocation.lat, longitude: userLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+              }
+              void computeRadarPixelSize();
+            }}
+          >
+            <View style={[styles.userDot, { borderColor: colors.backgroundCard, backgroundColor: colors.primary }]} />
+            <Callout tooltip onPress={() => {
+              setSearchLocation({ lat: userLocation.lat, lng: userLocation.lng });
+              setRadiusConfirmed(true);
+              setViewMode('map');
+              if (mapRef) {
+                mapRef.animateToRegion({ latitude: userLocation.lat, longitude: userLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+              }
+              void computeRadarPixelSize();
+            }}>
+              <View style={{ padding: 8, backgroundColor: colors.backgroundCard, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth }}>
+                <Text style={{ color: colors.text }}>Search nearby</Text>
+              </View>
+            </Callout>
+          </Marker>
+        )}
+
+        {/* Search-pin placed at searchLocation (used when FAB pressed) */}
+        {showUserSearchPin && searchLocation && (
+          <Marker
+            key="__user_search_pin"
+            coordinate={{ latitude: searchLocation.lat, longitude: searchLocation.lng }}
+            tracksViewChanges={false}
+            pinColor={colors.primary}
+            onPress={() => {
+              setViewMode('map');
+              if (mapRef) mapRef.animateToRegion({ latitude: searchLocation.lat, longitude: searchLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+            }}
+          />
+        )}
       </MapView>
+
+        {/* Pixel-accurate radar overlay (falls back to map Circle if compute fails) */}
+        {searchLocation && radiusConfirmed && (
+          <Animated.View pointerEvents="none" style={{
+            position: 'absolute',
+            left: radarLeftAnim,
+            top: radarTopAnim,
+            width: radarDiameterAnim,
+            height: radarDiameterAnim,
+            borderRadius: Animated.divide(radarDiameterAnim, 2),
+            borderWidth: 1,
+            borderColor: `${colors.primary}66`,
+            backgroundColor: `${colors.primary}1A`,
+            zIndex: 9,
+          }} />
+        )}
+
+          <LoadingOverlay visible={loadingSpots} text="Loading spots…" />
 
       {activeBookingBanner && (
         <View style={[styles.activeBookingBanner, { top: insets.top + SPACING.md + 52, backgroundColor: colors.backgroundCard, borderColor: colors.border }]}> 
@@ -698,6 +880,42 @@ export default function MapScreen() {
         >
           <Text style={[styles.toggleText, { color: viewMode === 'list' ? colors.primary : colors.textSecondary }]}>List</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={[styles.controlsRow, { top: insets.top + SPACING.md + 48, backgroundColor: 'transparent' }]}>
+        <View style={styles.radiusChips}>
+          {[0.5, 1, 3, 5].map((r) => {
+            const active = radiusMiles === r;
+            return (
+              <TouchableOpacity
+                key={String(r)}
+                style={[styles.chip, active && [styles.chipActive, { backgroundColor: colors.primary }], { borderColor: colors.border }]}
+                onPress={() => {
+                  setRadiusMiles(r);
+                  if (searchLocation) {
+                    setRadiusConfirmed(true);
+                    if (mapRef) {
+                      mapRef.animateToRegion({ latitude: searchLocation.lat, longitude: searchLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+                      void computeRadarPixelSize();
+                    }
+                  } else {
+                    // don't enable radius unless a search location is selected
+                    setRadiusConfirmed(false);
+                  }
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.chipText, { color: active ? '#fff' : colors.text }]}>{r} mi</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.filterChips}>
+          <TouchableOpacity style={[styles.chip, { paddingHorizontal: 14 }]} onPress={() => setFilterModalVisible(true)} activeOpacity={0.85}>
+            <Text style={[styles.chipText, { color: colors.text }]}>Filters</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {viewMode === 'list' && (
@@ -782,6 +1000,33 @@ export default function MapScreen() {
                 activeOpacity={0.8}
               >
                 <Text style={[styles.confirmCancelText, { color: colors.textSecondary }]}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={filterModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { marginTop: insets.top + 80, backgroundColor: colors.backgroundCard }]}> 
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Filters</Text>
+            <View style={{ marginTop: 8 }}>
+              {['under10', 'driveway', 'garage'].map((f) => {
+                const active = selectedFilters.includes(f);
+                const label = f === 'under10' ? 'Under $10' : f.charAt(0).toUpperCase() + f.slice(1);
+                return (
+                  <TouchableOpacity key={f} style={[styles.chip, { marginVertical: 6, justifyContent: 'flex-start' }, active && styles.chipActive]} onPress={() => {
+                    if (active) setSelectedFilters(selectedFilters.filter((s) => s !== f));
+                    else setSelectedFilters([...selectedFilters, f]);
+                  }} activeOpacity={0.85}>
+                    <Text style={[styles.chipText, { color: active ? '#fff' : colors.text }]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+              <TouchableOpacity style={[styles.cancelButton, { borderColor: colors.border }]} onPress={() => setFilterModalVisible(false)} activeOpacity={0.85}>
+                <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>Done</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1022,6 +1267,47 @@ export default function MapScreen() {
         </View>
       </Modal>
 
+      {/* Floating action button to use current location as search pin */}
+      <View style={[styles.fabContainer, { bottom: insets.bottom + 20 }]}
+        pointerEvents="box-none"
+      >
+        <TouchableOpacity
+          style={[styles.fabButton, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+          onPress={async () => {
+            if (!userLocation) {
+              try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') return;
+                const pos = await Location.getCurrentPositionAsync({});
+                const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                setUserLocation(coords);
+                setSearchLocation(coords);
+              } catch {
+                return;
+              }
+            } else {
+              setSearchLocation({ lat: userLocation.lat, lng: userLocation.lng });
+            }
+
+            setRadiusConfirmed(true);
+            setShowUserSearchPin((s) => !s);
+            setViewMode('map');
+            if (mapRef && searchLocation == null) {
+              // if searchLocation was just set above, prefer userLocation
+              const target = userLocation ?? null;
+              if (target) mapRef.animateToRegion({ latitude: target.lat, longitude: target.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+            } else if (mapRef && searchLocation) {
+              mapRef.animateToRegion({ latitude: searchLocation.lat, longitude: searchLocation.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+            }
+
+            void computeRadarPixelSize();
+          }}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.fabIcon, { color: colors.text }]}>📍</Text>
+        </TouchableOpacity>
+      </View>
+
       <DatePickerModal
         locale="en"
         mode="single"
@@ -1130,6 +1416,39 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  controlsRow: {
+    position: 'absolute',
+    left: SPACING.md,
+    right: SPACING.md,
+    zIndex: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  radiusChips: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  filterChips: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  chip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  chipActive: {
+    borderColor: 'transparent',
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   listCardContent: { flex: 1, marginRight: SPACING.sm },
   listCardTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
@@ -1391,5 +1710,45 @@ const styles = StyleSheet.create({
   },
   paymentCancelText: {
     fontSize: 16,
+  },
+  fabContainer: {
+    position: 'absolute',
+    right: 16,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  fabButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  fabIcon: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  userDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  cancelButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

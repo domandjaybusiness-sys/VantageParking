@@ -34,7 +34,13 @@ export default function AddListingScreen() {
       );
       const data = await response.json();
       if (data.features) {
-        setSuggestions(data.features);
+        // Only keep suggestions within the United States for now
+        const usOnly = (data.features || []).filter((f: any) => {
+          const props = f.properties || {};
+          const cc = String(props.countrycode || '').toLowerCase();
+          return !cc || cc === 'us';
+        });
+        setSuggestions(usOnly);
       }
     } catch (error) {
       console.log('Autocomplete error:', error);

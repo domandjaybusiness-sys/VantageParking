@@ -7,14 +7,15 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-    Alert,
-    Linking,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Linking,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -28,7 +29,12 @@ export default function HomeScreen() {
   const [activeBookings, setActiveBookings] = useState(0);
   const [todayEarnings, setTodayEarnings] = useState(0);
   const [spotCount, setSpotCount] = useState(0);
-  const [topSpots, setTopSpots] = useState<{ id: string; title: string; address: string; price: number }[]>([]);
+  const [topSpots, setTopSpots] = useState<{ id: string; title: string; address: string; price: number; latitude?: number | null; longitude?: number | null }[]>([]);
+  const [homeTab, setHomeTab] = useState<'overview' | 'active'>('overview');
+  const [activeSpotsList, setActiveSpotsList] = useState<any[]>([]);
+  const [addTimeModalVisible, setAddTimeModalVisible] = useState(false);
+  const [addTimeBooking, setAddTimeBooking] = useState<any | null>(null);
+  const [addTimeMinutes, setAddTimeMinutes] = useState<number>(15);
   const [activeBookingBanner, setActiveBookingBanner] = useState<{
     id: string;
     title: string;
@@ -66,6 +72,8 @@ export default function HomeScreen() {
           title: s.title,
           address: s.address,
           price: s.pricePerHour ?? 0,
+          latitude: s.latitude ?? s.longitude ?? null,
+          longitude: s.longitude ?? s.latitude ?? null,
         }));
       setTopSpots(sorted);
 
@@ -143,6 +151,29 @@ export default function HomeScreen() {
 
     load();
 
+    // also fetch active spots list for user
+    const fetchActiveSpots = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setActiveSpotsList([]); return; }
+      const { data } = await supabase
+        .from('bookings')
+        .select('id, start_time, end_time, status, spot:spots(id,title,address)')
+        .eq('user_id', user.id)
+        .in('status', ['active','pending'])
+        .order('end_time', { ascending: true });
+
+      const mapped = (data ?? []).map((r: any) => ({
+        id: String(r.id),
+        start: r.start_time ? new Date(r.start_time) : null,
+        end: r.end_time ? new Date(r.end_time) : null,
+        status: r.status,
+        spot: Array.isArray(r.spot) ? r.spot[0] : r.spot,
+      }));
+      setActiveSpotsList(mapped);
+    };
+
+    void fetchActiveSpots();
+
     const bookingsChannel = supabase
       .channel('home-active-booking')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
@@ -154,6 +185,78 @@ export default function HomeScreen() {
       supabase.removeChannel(bookingsChannel);
     };
   }, []);
+
+  // refresh active spots when tab is opened
+  useEffect(() => {
+    if (homeTab !== 'active') return;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setActiveSpotsList([]); return; }
+      const { data } = await supabase
+        .from('bookings')
+        .select('id, start_time, end_time, status, spot:spots(id,title,address)')
+        .eq('user_id', user.id)
+        .in('status', ['active','pending'])
+        .order('end_time', { ascending: true });
+
+      const mapped = (data ?? []).map((r: any) => ({
+        id: String(r.id),
+        start: r.start_time ? new Date(r.start_time) : null,
+        end: r.end_time ? new Date(r.end_time) : null,
+        status: r.status,
+        spot: Array.isArray(r.spot) ? r.spot[0] : r.spot,
+      }));
+      setActiveSpotsList(mapped);
+    })();
+  }, [homeTab]);
+
+  const openAddTimeModal = (booking: any) => {
+    setAddTimeBooking(booking);
+    setAddTimeMinutes(15);
+    setAddTimeModalVisible(true);
+  };
+
+  const confirmAddTime = async (minutes: number) => {
+    if (!addTimeBooking) return;
+    setAddTimeModalVisible(false);
+
+    const booking = addTimeBooking;
+    const newEndMs = (booking.end?.getTime() || Date.now()) + minutes * 60000;
+    const newEndISO = new Date(newEndMs).toISOString();
+
+    // check overlap
+    const { data: conflict, error: conflictErr } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('spot_id', booking.spot?.id)
+      .neq('id', booking.id)
+      .lt('start_time', newEndISO)
+      .gt('end_time', booking.end ? booking.end.toISOString() : new Date().toISOString())
+      .in('status', ['pending','active'])
+      .limit(1);
+
+    if (conflictErr) {
+      Alert.alert('Could not check availability', conflictErr.message || '');
+      return;
+    }
+
+    if ((conflict ?? []).length > 0) {
+      
+      Alert.alert('Cannot add time', 'Someone has reserved this spot after your current booking window.');
+      return;
+    }
+
+    const { error: updateErr } = await supabase.from('bookings').update({ end_time: newEndISO }).eq('id', booking.id);
+    if (updateErr) {
+      Alert.alert('Failed to add time', updateErr.message || 'Unable to extend booking.');
+      return;
+    }
+
+    // refresh list and banner
+    Alert.alert('Time added', `Added ${minutes} minutes to your booking.`);
+    // Refresh by reloading page's data
+    void (async () => { const { data: { user } } = await supabase.auth.getUser(); if (!user) return; const { data } = await supabase.from('bookings').select('id, start_time, end_time, status, spot:spots(id,title,address)').eq('user_id', user.id).in('status', ['active','pending']).order('end_time', { ascending: true }); setActiveSpotsList((data ?? []).map((r:any)=>({ id:String(r.id), start: r.start_time?new Date(r.start_time):null, end: r.end_time?new Date(r.end_time):null, status: r.status, spot: Array.isArray(r.spot)?r.spot[0]:r.spot }))); })();
+  };
 
   useEffect(() => {
     if (!activeBookingBanner) return;
@@ -170,6 +273,13 @@ export default function HomeScreen() {
     const hourLabel = `${hours}hr`;
     const minuteLabel = `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
     return `${hourLabel} ${minuteLabel}`;
+  };
+
+  const formatMinutesLabel = (minutes: number) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours > 0) return `${hours}hr ${mins} ${mins === 1 ? 'minute' : 'minutes'}`;
+    return `${mins} ${mins === 1 ? 'minute' : 'minutes'}`;
   };
 
   const openCurrentLocation = async () => {
@@ -198,7 +308,7 @@ export default function HomeScreen() {
       }
 
       const position = await Location.getCurrentPositionAsync({});
-      router.push(`/map?lat=${position.coords.latitude}&lng=${position.coords.longitude}`);
+      router.push(`/map?lat=${position.coords.latitude}&lng=${position.coords.longitude}&radius=5&showList=true`);
     } catch {
       Alert.alert('Location error', 'Could not retrieve your location. Please try again.');
     }
@@ -246,6 +356,50 @@ export default function HomeScreen() {
           <Text style={styles.primaryHomeActionText}>Find parking near me</Text>
         </TouchableOpacity>
       </AnimatedListItem>
+
+      <View style={styles.homeTabsRow}>
+        <TouchableOpacity
+          style={[styles.homeTabButton, homeTab === 'overview' && { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+          onPress={() => setHomeTab('overview')}
+          activeOpacity={0.85}
+        >
+          <Text style={{ color: colors.text }}>Overview</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.homeTabButton, homeTab === 'active' && { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+          onPress={() => setHomeTab('active')}
+          activeOpacity={0.85}
+        >
+          <Text style={{ color: colors.text }}>Active Spots ({activeSpotsList.length})</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Modal visible={addTimeModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}> 
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Add time to parking</Text>
+            <Text style={[styles.modalAddress, { color: colors.text }]} numberOfLines={2}>{addTimeBooking?.spot?.address ?? addTimeBooking?.spot?.title ?? 'Selected spot'}</Text>
+
+            <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Add duration</Text>
+            <View style={styles.durationGrid}>
+              {[15,30,60,120,180,240,720].map((m) => (
+                <TouchableOpacity key={String(m)} style={[styles.durationButton, addTimeMinutes === m && { backgroundColor: colors.primary }]} onPress={() => setAddTimeMinutes(m)} activeOpacity={0.85}>
+                  <Text style={[styles.durationButtonText, addTimeMinutes === m ? { color: '#fff' } : { color: colors.text }]}>{m === 720 ? 'All day' : (m >= 60 ? `${m/60}h` : `${m}m`)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.confirmRow}>
+              <TouchableOpacity style={[styles.confirmButton, { backgroundColor: colors.primary }]} onPress={() => confirmAddTime(addTimeMinutes)} activeOpacity={0.85}>
+                <Text style={styles.confirmButtonText}>Add {formatMinutesLabel(addTimeMinutes)}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.cancelButton, { borderColor: colors.border }]} onPress={() => setAddTimeModalVisible(false)} activeOpacity={0.85}>
+                <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <AnimatedListItem index={2} direction="down">
         <View style={styles.dualActionRow}>
@@ -301,24 +455,70 @@ export default function HomeScreen() {
         </AnimatedListItem>
       )}
 
-      <View style={styles.topSpotsSection}>
+      {homeTab === 'active' ? (
+        <View style={styles.activeSpotsSection}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Active Spots</Text>
+          {activeSpotsList.length === 0 ? (
+            <View style={[styles.empty, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No active spots</Text>
+              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>Start parking to see active spots here.</Text>
+            </View>
+          ) : (
+            activeSpotsList.map((b) => (
+              <AnimatedListItem key={b.id} index={3} direction="up">
+                <TouchableOpacity activeOpacity={0.9} onPress={() => {
+                  // Navigate to map and center on this spot
+                  const lat = b.spot?.latitude ?? b.spot?.lat ?? null;
+                  const lng = b.spot?.longitude ?? b.spot?.lng ?? null;
+                  if (lat != null && lng != null) {
+                    router.push(`/map?lat=${lat}&lng=${lng}&spotId=${b.id}`);
+                  } else {
+                    router.push('/map');
+                  }
+                }}>
+                  <View style={[styles.activeCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}> 
+                    <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>{b.spot?.title ?? 'Spot'}</Text>
+                    <Text style={[styles.address, { color: colors.textSecondary }]} numberOfLines={1}>{b.spot?.address}</Text>
+                    <Text style={[styles.smallMeta, { color: colors.textSecondary }]}>Time remaining: {b.end ? formatRemainingTime(b.end) : '--'}</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                      <TouchableOpacity style={[styles.secondaryBtn, { borderColor: colors.border }]} onPress={() => router.push('/reservations')} activeOpacity={0.85}>
+                        <Text style={[styles.secondaryBtnText, { color: colors.text }]}>View Reservation</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: colors.primary }]} onPress={() => openAddTimeModal(b)} activeOpacity={0.85}>
+                        <Text style={styles.primaryBtnText}>Add Time</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </AnimatedListItem>
+            ))
+          )}
+        </View>
+      ) : (
+        <View style={styles.topSpotsSection}>
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Best Value Right Now</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.topSpotsRow}>
+        <View style={styles.topSpotsList}>
           {topSpots.map((spot, index) => (
             <AnimatedListItem key={spot.id} index={index + 4} direction="up">
               <TouchableOpacity
-                style={[styles.spotCardHorizontal, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
-                onPress={() => router.push('/browse')}
+                style={[styles.spotCardList, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.push({ pathname: '/browse', params: { spotId: spot.id, lat: spot.latitude ?? undefined, lng: spot.longitude ?? undefined } });
+                }}
                 activeOpacity={0.85}
               >
-                <Text style={[styles.spotTitle, { color: colors.text }]} numberOfLines={1}>{spot.title}</Text>
-                <Text style={[styles.spotAddress, { color: colors.textSecondary }]} numberOfLines={2}>{spot.address}</Text>
-                <Text style={[styles.spotPrice, { color: colors.primary }]}>${spot.price.toFixed(2)}/hr</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.spotTitle, { color: colors.text }]} numberOfLines={1}>{spot.title}</Text>
+                  <Text style={[styles.spotAddress, { color: colors.textSecondary }]} numberOfLines={2}>{spot.address}</Text>
+                </View>
+                <Text style={[styles.spotPrice, { color: colors.primary }]}>{`$${spot.price.toFixed(2)}/hr`}</Text>
               </TouchableOpacity>
             </AnimatedListItem>
           ))}
-        </ScrollView>
+        </View>
       </View>
+      )}
     </ScrollView>
   );
 }
@@ -375,6 +575,105 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '700',
     letterSpacing: 2,
+  },
+  homeTabsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginVertical: 12,
+  },
+  homeTabButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+  },
+  activeSpotsSection: {
+    marginBottom: 12,
+  },
+  activeCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  smallMeta: {
+    fontSize: 13,
+    marginTop: 6,
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    padding: 20,
+    zIndex: 40,
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  modalTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  modalAddress: {
+    fontSize: 13,
+    marginBottom: 12,
+    fontWeight: '600',
+  },
+  modalLabel: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  durationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  durationButton: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  durationButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  confirmRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 6,
+  },
+  confirmButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  cancelButton: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   greeting: {
     fontSize: 14,
@@ -489,11 +788,23 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingBottom: 4,
   },
+  topSpotsList: {
+    paddingBottom: 4,
+  },
   spotCardHorizontal: {
     width: 240,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 14,
     padding: 14,
+  },
+  spotCardList: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   spotCard: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -516,4 +827,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  empty: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  emptyTitle: { fontSize: 16, fontWeight: '700' },
+  emptySub: { fontSize: 13 },
+  cardTitle: { fontSize: 16, fontWeight: '700' },
+  address: { fontSize: 13, marginTop: 4 },
+  secondaryBtn: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  secondaryBtnText: { fontSize: 13, fontWeight: '600' },
+  primaryBtn: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  primaryBtnText: { fontSize: 13, fontWeight: '700' },
 });

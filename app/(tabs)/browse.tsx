@@ -1,18 +1,22 @@
 import { AnimatedListItem } from '@/components/ui/animated-list-item';
+import LoadingOverlay from '@/components/ui/loading-overlay';
 import { useTheme } from '@/contexts/ThemeContext';
+import { computeBookingPriceBreakdown } from '@/lib/booking';
 import { Listing, mapSpotRow } from '@/lib/listings';
 import { computeHourlyRate, DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Animated,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,25 +36,42 @@ export default function BrowseScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [spots, setSpots] = useState<Listing[]>([]);
+  const [loadingSpots, setLoadingSpots] = useState(false);
+  const listOpacity = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<ScrollView | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<string, { latitude: number; longitude: number }>>({});
   const [searchText, setSearchText] = useState(params.location ? String(params.location) : '');
   const [activeFilter, setActiveFilter] = useState<FilterId>('all');
   const [searchSuggestions, setSearchSuggestions] = useState<{ id: string; title: string; lat: number; lng: number }[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [focusedSpotId, setFocusedSpotId] = useState<string | null>(null);
+  const [processingSpotId, setProcessingSpotId] = useState<string | null>(null);
+  const [bookNowModalVisible, setBookNowModalVisible] = useState(false);
+  const [bookNowSpot, setBookNowSpot] = useState<Listing | null>(null);
+  const [bookNowDuration, setBookNowDuration] = useState<number>(15);
+  const [reserveModalVisible, setReserveModalVisible] = useState(false);
+  const [reserveSpot, setReserveSpot] = useState<Listing | null>(null);
+  const [reserveDate, setReserveDate] = useState<Date>(new Date());
+  const [reserveHour, setReserveHour] = useState<number>((new Date()).getHours() + 1);
+  const [reserveDurationHours, setReserveDurationHours] = useState<number>(1);
+
+  
 
   useEffect(() => {
     const fetchSpots = async () => {
-      const { data, error } = await supabase
-        .from('spots')
-        .select('*')
-        .order('created_at', { ascending: false });
+      try {
+        setLoadingSpots(true);
+        const { data, error } = await supabase
+          .from('spots')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (error) {
-        setSpots([]);
-        return;
-      }
+        if (error) {
+          setSpots([]);
+          return;
+        }
 
-      const mapped = (data ?? []).map(mapSpotRow);
+        const mapped = (data ?? []).map(mapSpotRow);
 
       // Deduplicate spots by normalized address (prefer first seen)
       const dedupedByAddress = Object.values(
@@ -61,8 +82,6 @@ export default function BrowseScreen() {
           return acc;
         }, {})
       );
-
-      setSpots(dedupedByAddress);
 
       // Client-side geocode for a few missing spots so thumbnails can show immediately
       const missing = mapped.filter((s) => s.latitude == null || s.longitude == null);
@@ -86,6 +105,12 @@ export default function BrowseScreen() {
           // ignore
         }
       });
+
+      setSpots(dedupedByAddress);
+      Animated.timing(listOpacity, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+    } finally {
+      setLoadingSpots(false);
+    }
     };
 
     fetchSpots();
@@ -100,27 +125,50 @@ export default function BrowseScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [listOpacity]);
 
-  const visibleSpots = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
+  // If navigated here with a spotId param, focus and scroll to that spot after spots load
+  useEffect(() => {
+    if (!params.spotId) return;
+    const id = String(params.spotId);
 
-    return spots
-      .filter((spot) => {
-        if (!query) return true;
-        return (
-          spot.title.toLowerCase().includes(query) ||
-          spot.address.toLowerCase().includes(query)
-        );
-      })
-      .filter((spot) => {
-        if (activeFilter === 'all') return true;
-        if (activeFilter === 'under10') return (spot.pricePerHour ?? 0) < 10;
-        if (activeFilter === 'driveway') return spot.title.toLowerCase().includes('driveway');
-        if (activeFilter === 'garage') return spot.title.toLowerCase().includes('garage');
-        return true;
-      });
-  }, [spots, searchText, activeFilter]);
+    // wait a tick for layout
+    const t = setTimeout(() => {
+      setFocusedSpotId(id);
+
+      // attempt to find index and scroll
+      const query = searchText.trim().toLowerCase();
+      const filtered = spots
+        .filter((spot) => {
+          if (!query) return true;
+          return (
+            spot.title.toLowerCase().includes(query) ||
+            spot.address.toLowerCase().includes(query)
+          );
+        })
+        .filter((spot) => {
+          if (activeFilter === 'all') return true;
+          if (activeFilter === 'under10') return (spot.pricePerHour ?? 0) < 10;
+          if (activeFilter === 'driveway') return spot.title.toLowerCase().includes('driveway');
+          if (activeFilter === 'garage') return spot.title.toLowerCase().includes('garage');
+          return true;
+        });
+
+      const idx = filtered.findIndex((s) => String(s.id) === id);
+      if (idx >= 0 && scrollRef.current) {
+        const approxHeight = 140; // approximate per-card height
+        const y = Math.max(0, idx * approxHeight - 80);
+        try { (scrollRef.current as any).scrollTo({ y, animated: true }); } catch {}
+      }
+
+      // clear focus after a short while
+      setTimeout(() => setFocusedSpotId(null), 4000);
+    }, 400);
+
+    return () => clearTimeout(t);
+  }, [params.spotId, spots, searchText, activeFilter]);
+
+  
 
   useEffect(() => {
     const trimmed = searchText.trim();
@@ -180,6 +228,26 @@ export default function BrowseScreen() {
     return () => clearTimeout(timeout);
   }, [searchText]);
 
+  const visibleSpots = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+
+    return spots
+      .filter((spot) => {
+        if (!query) return true;
+        return (
+          spot.title.toLowerCase().includes(query) ||
+          spot.address.toLowerCase().includes(query)
+        );
+      })
+      .filter((spot) => {
+        if (activeFilter === 'all') return true;
+        if (activeFilter === 'under10') return (spot.pricePerHour ?? 0) < 10;
+        if (activeFilter === 'driveway') return spot.title.toLowerCase().includes('driveway');
+        if (activeFilter === 'garage') return spot.title.toLowerCase().includes('garage');
+        return true;
+      });
+  }, [spots, searchText, activeFilter]);
+
   const mapPreviewCenter = useMemo(() => {
     if (params.lat && params.lng) {
       return {
@@ -205,13 +273,29 @@ export default function BrowseScreen() {
     };
   }, [visibleSpots, spots, geocodedCoords, params.lat, params.lng]);
 
-  const onConfirmSpot = async (spot: Listing) => {
-    // Navigate to the Map screen and open the booking editor so user can pick date/time
+  // NOTE: Reserve and Book flows navigate to /map directly via modal handlers.
+  // onConfirmSpot was removed because it's unused.
+
+  // When user taps Book Now, show duration selection modal first
+  const onBookNowSpot = (spot: Listing) => {
+    setBookNowSpot(spot);
+    setBookNowDuration(15);
+    setBookNowModalVisible(true);
+  };
+
+  const confirmBookNow = async (minutes: number) => {
+    const spot = bookNowSpot;
+    if (!spot) return;
+    if (processingSpotId) return;
+    setProcessingSpotId(String(spot.id));
+    setBookNowModalVisible(false);
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
+      setProcessingSpotId(null);
       Alert.alert('Sign in required', 'Please log in to book a spot.', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Log In', onPress: () => router.push('/(auth)/login') },
@@ -219,18 +303,75 @@ export default function BrowseScreen() {
       return;
     }
 
-    router.push({
-      pathname: '/map',
-      params: {
-        lat: spot.latitude ?? undefined,
-        lng: spot.longitude ?? undefined,
-        spotId: spot.id,
-        openBooking: 'true',
-        date: params.date ?? undefined,
-        startTime: params.startTime ?? undefined,
-        endTime: params.endTime ?? undefined,
-      },
-    });
+    const start = new Date();
+    const end = new Date(start.getTime() + minutes * 60000);
+    const price = computeBookingPriceBreakdown({ mode: 'parkNow', start, end, hostRate: spot.pricePerHour });
+
+    // check overlap quickly
+    const { data: overlapData, error: overlapError } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('spot_id', spot.id)
+      .lt('start_time', end.toISOString())
+      .gt('end_time', start.toISOString())
+      .in('status', ['pending', 'active'])
+      .limit(1);
+
+    if (overlapError) {
+      setProcessingSpotId(null);
+      Alert.alert('Availability check failed', overlapError.message || 'Unable to check availability.');
+      return;
+    }
+
+    if ((overlapData ?? []).length > 0) {
+      setProcessingSpotId(null);
+      Alert.alert('Spot unavailable', 'This spot is already booked for that time window.');
+      return;
+    }
+
+    const payload: any = {
+      spot_id: spot.id,
+      user_id: user.id,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      status: 'active',
+      total_price: price.total,
+      platform_fee: price.platformFee,
+      host_payout: price.hostPayout,
+      created_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('bookings').insert(payload);
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      const optionalCols = msg.includes('platform_fee') || msg.includes('host_payout') || msg.includes('total_price') || msg.includes('column') || msg.includes('schema cache');
+
+      if (optionalCols) {
+        const { error: fallbackError } = await supabase.from('bookings').insert({
+          spot_id: spot.id,
+          user_id: user.id,
+          start_time: start.toISOString(),
+          end_time: end.toISOString(),
+          status: 'active',
+          created_at: new Date().toISOString(),
+        });
+
+        if (fallbackError) {
+          setProcessingSpotId(null);
+          Alert.alert('Booking failed', fallbackError.message || 'Unable to create booking.');
+          return;
+        }
+      } else {
+        setProcessingSpotId(null);
+        Alert.alert('Booking failed', error.message || 'Unable to create booking.');
+        return;
+      }
+    }
+
+    setProcessingSpotId(null);
+    setBookNowSpot(null);
+    Alert.alert('Parking started', 'Your Park Now booking is now active.');
+    router.push('/reservations');
   };
 
   const resolveSpotCoordinates = async (spot: Listing) => {
@@ -268,6 +409,7 @@ export default function BrowseScreen() {
 
   return (
     <ScrollView
+      ref={(r) => { scrollRef.current = r; }}
       style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 8 }]}
       showsVerticalScrollIndicator={false}
@@ -385,7 +527,10 @@ export default function BrowseScreen() {
         <Text style={[styles.resultsCount, { color: colors.textSecondary }]}>{visibleSpots.length} found</Text>
       </View>
 
-      {visibleSpots.map((spot, index) => {
+      <LoadingOverlay visible={loadingSpots} text="Loading spots…" />
+
+      <Animated.View style={{ opacity: listOpacity }}>
+        {visibleSpots.map((spot, index) => {
         const rate = computeHourlyRate({
           baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
           address: spot.address,
@@ -394,7 +539,11 @@ export default function BrowseScreen() {
 
         return (
           <AnimatedListItem key={spot.id} index={index + 3} direction="up">
-            <View style={[styles.card, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
+            <View style={[
+              styles.card,
+              { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+              focusedSpotId && String(focusedSpotId) === String(spot.id) ? { borderColor: colors.primary, borderWidth: 2, shadowColor: colors.primary, shadowOpacity: 0.12 } : undefined,
+            ]}>
               <View style={styles.cardTopRow}>
                 <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>{spot.title}</Text>
                 <Text style={[styles.price, { color: colors.primary }]}>${rate.toFixed(2)}/hr</Text>
@@ -437,32 +586,16 @@ export default function BrowseScreen() {
                   );
                 })()
               }
-              <View style={styles.cardActions}>
+              <View style={styles.cardActionsTriple}>
                 <TouchableOpacity
-                  style={[styles.secondaryBtn, { borderColor: colors.border }]}
+                  style={[styles.secondaryBtn, { borderColor: colors.border, flex: 1 }]}
                   onPress={async () => {
                     const resolved = await resolveSpotCoordinates(spot);
                     const effectiveLat = resolved?.lat ?? spot.latitude ?? geocodedCoords[spot.id]?.latitude;
                     const effectiveLng = resolved?.lng ?? spot.longitude ?? geocodedCoords[spot.id]?.longitude;
-                    const effectiveRate = computeHourlyRate({
-                      baseRate: spot.pricePerHour ?? DEFAULT_BASE_RATE,
-                      address: spot.address,
-                      startTime: new Date(),
-                    });
 
                     if (effectiveLat != null && effectiveLng != null) {
-                      router.push({
-                        pathname: '/map',
-                        params: {
-                          lat: String(effectiveLat),
-                          lng: String(effectiveLng),
-                          spotId: spot.id,
-                          viewSpot: 'true',
-                          spotTitle: spot.title,
-                          spotAddress: spot.address,
-                          viewPrice: String(effectiveRate),
-                        },
-                      });
+                      router.push({ pathname: '/map', params: { lat: String(effectiveLat), lng: String(effectiveLng) } });
                     } else {
                       Alert.alert('Location unavailable', 'We could not find map coordinates for this spot yet.');
                     }
@@ -471,18 +604,40 @@ export default function BrowseScreen() {
                 >
                   <Text style={[styles.secondaryBtnText, { color: colors.text }]}>View on Map</Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-                  onPress={() => onConfirmSpot(spot)}
+                  style={[styles.tertiaryBtn, { borderColor: colors.border, marginHorizontal: 8, opacity: processingSpotId === String(spot.id) ? 0.6 : 1 }]}
+                  onPress={() => onBookNowSpot(spot)}
+                  activeOpacity={0.8}
+                  disabled={processingSpotId === String(spot.id)}
+                >
+                  <Text style={[styles.tertiaryBtnText, { color: colors.text }]}>{processingSpotId === String(spot.id) ? 'Processing…' : 'Book Now'}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.primaryBtn, { backgroundColor: colors.primary, flex: 1 }]}
+                  onPress={() => {
+                    // open reserve modal to pick date/time/duration
+                    setReserveSpot(spot);
+                    const now = new Date();
+                    const nextHour = new Date(now.getTime());
+                    nextHour.setMinutes(0, 0, 0);
+                    nextHour.setHours(nextHour.getHours() + 1);
+                    setReserveDate(nextHour);
+                    setReserveHour(nextHour.getHours());
+                    setReserveDurationHours(1);
+                    setReserveModalVisible(true);
+                  }}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.primaryBtnText}>Confirm Spot</Text>
+                  <Text style={styles.primaryBtnText}>Reserve</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </AnimatedListItem>
         );
-      })}
+        })}
+      </Animated.View>
 
       {visibleSpots.length === 0 && (
         <View style={[styles.empty, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
@@ -490,6 +645,113 @@ export default function BrowseScreen() {
           <Text style={[styles.emptySub, { color: colors.textSecondary }]}>Try a different search term or switch filters.</Text>
         </View>
       )}
+      <Modal visible={bookNowModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}> 
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Start parking at</Text>
+            <Text style={[styles.modalAddress, { color: colors.text }]} numberOfLines={2}>{bookNowSpot?.address ?? bookNowSpot?.title ?? 'Selected spot'}</Text>
+
+            <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Select duration</Text>
+            <View style={styles.durationGrid}>
+              {[
+                { m: 15, label: '15m' },
+                { m: 30, label: '30m' },
+                { m: 60, label: '1h' },
+                { m: 120, label: '2h' },
+                { m: 180, label: '3h' },
+                { m: 240, label: '4h' },
+                { m: 720, label: 'All day' },
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={String(opt.m)}
+                  style={[styles.durationButton, bookNowDuration === opt.m && { backgroundColor: colors.primary }]}
+                  onPress={() => setBookNowDuration(opt.m)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.durationButtonText, bookNowDuration === opt.m ? { color: '#fff' } : { color: colors.text }]}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.confirmRow}>
+              <TouchableOpacity style={[styles.confirmButton, { backgroundColor: colors.primary }]} onPress={() => confirmBookNow(bookNowDuration)} activeOpacity={0.85}>
+                <Text style={[styles.confirmButtonText]}>Start parking</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.cancelButton, { borderColor: colors.border }]} onPress={() => { setBookNowModalVisible(false); setBookNowSpot(null); }} activeOpacity={0.85}>
+                <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={reserveModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}> 
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Reserve spot</Text>
+            <Text style={[styles.modalAddress, { color: colors.text }]} numberOfLines={2}>{reserveSpot?.address ?? reserveSpot?.title ?? 'Selected spot'}</Text>
+
+            <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Select date</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <TouchableOpacity onPress={() => setReserveDate((d) => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; })} style={{ padding: 8 }}>
+                <Text style={{ color: colors.textSecondary }}>◀</Text>
+              </TouchableOpacity>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>{reserveDate.toDateString()}</Text>
+              <TouchableOpacity onPress={() => setReserveDate((d) => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; })} style={{ padding: 8 }}>
+                <Text style={{ color: colors.textSecondary }}>▶</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Select start time (hourly)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 8, gap: 8 }}>
+              {Array.from({ length: 24 }).map((_, h) => {
+                const label = (() => {
+                  const hour = h % 24;
+                  const am = hour < 12;
+                  const display = hour % 12 === 0 ? 12 : hour % 12;
+                  return `${display} ${am ? 'AM' : 'PM'}`;
+                })();
+                return (
+                  <TouchableOpacity
+                    key={String(h)}
+                    onPress={() => setReserveHour(h)}
+                    style={[styles.durationButton, reserveHour === h && { backgroundColor: colors.primary }]}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.durationButtonText, reserveHour === h ? { color: '#fff' } : { color: colors.text }]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Duration (hours)</Text>
+            <View style={styles.durationGrid}>
+              {[1,2,3,4,6,8,12].map((h) => (
+                <TouchableOpacity key={String(h)} style={[styles.durationButton, reserveDurationHours === h && { backgroundColor: colors.primary }]} onPress={() => setReserveDurationHours(h)} activeOpacity={0.85}>
+                  <Text style={[styles.durationButtonText, reserveDurationHours === h ? { color: '#fff' } : { color: colors.text }]}>{`${h}h`}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.confirmRow}>
+              <TouchableOpacity style={[styles.confirmButton, { backgroundColor: colors.primary }]} onPress={() => {
+                if (!reserveSpot) return;
+                // build start and end ISO strings
+                const start = new Date(reserveDate.getFullYear(), reserveDate.getMonth(), reserveDate.getDate(), reserveHour, 0, 0);
+                const end = new Date(start.getTime() + reserveDurationHours * 60 * 60 * 1000);
+                setReserveModalVisible(false);
+                setReserveSpot(null);
+                // navigate to map and open booking sheet with params
+                router.push({ pathname: '/map', params: { spotId: reserveSpot.id, openBooking: 'true', date: start.toISOString(), startTime: start.toISOString(), endTime: end.toISOString() } });
+              }} activeOpacity={0.85}>
+                <Text style={[styles.confirmButtonText]}>Reserve for {reserveDurationHours}h</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.cancelButton, { borderColor: colors.border }]} onPress={() => { setReserveModalVisible(false); setReserveSpot(null); }} activeOpacity={0.85}>
+                <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -613,6 +875,102 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     marginBottom: 12,
+  },
+  cardActionsTriple: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 6,
+  },
+  tertiaryBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tertiaryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    padding: 20,
+    zIndex: 40,
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  modalTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  modalAddress: {
+    fontSize: 13,
+    marginBottom: 12,
+    fontWeight: '600',
+  },
+  modalLabel: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  durationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  durationButton: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  durationButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  confirmRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 6,
+  },
+  confirmButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  cancelButton: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   miniMap: {
     height: 120,
