@@ -7,15 +7,15 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
-  Linking,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    Linking,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -308,7 +308,32 @@ export default function HomeScreen() {
       }
 
       const position = await Location.getCurrentPositionAsync({});
-      router.push(`/map?lat=${position.coords.latitude}&lng=${position.coords.longitude}&radius=5&showList=true`);
+      const latitude = position.coords.latitude;
+      const longitude = position.coords.longitude;
+
+      let locationLabel = 'Current location';
+      try {
+        const geo = await Location.reverseGeocodeAsync({ latitude, longitude });
+        const first = geo?.[0];
+        if (first) {
+          const label = [first.name, first.street, first.city, first.region].filter(Boolean).join(', ');
+          if (label.trim().length > 0) locationLabel = label;
+        }
+      } catch {
+        // keep fallback label
+      }
+
+      router.push({
+        pathname: '/map',
+        params: {
+          lat: String(latitude),
+          lng: String(longitude),
+          radius: '5',
+          showList: 'true',
+          nearMe: 'true',
+          location: locationLabel,
+        },
+      });
     } catch {
       Alert.alert('Location error', 'Could not retrieve your location. Please try again.');
     }

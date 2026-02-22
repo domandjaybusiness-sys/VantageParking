@@ -10,12 +10,11 @@ import {
 import { Listing, mapSpotRow } from '@/lib/listings';
 import { DEFAULT_BASE_RATE } from '@/lib/pricing';
 import { supabase } from '@/lib/supabase';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, Easing, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import MapView, { Callout, Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -74,6 +73,7 @@ export default function MapScreen() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [radiusMiles, setRadiusMiles] = useState(5);
+  const [autoRadiusFromZoom, setAutoRadiusFromZoom] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const radarDiameterAnim = useRef(new Animated.Value(0)).current;
   const radarLeftAnim = useRef(new Animated.Value(0)).current;
@@ -170,8 +170,27 @@ export default function MapScreen() {
   const clearSearchArea = useCallback(() => {
     setSearchLocation(null);
     setRadiusConfirmed(false);
+    setAutoRadiusFromZoom(false);
     setSearchResults([]);
   }, []);
+
+  const nearestRadiusChip = useCallback((miles: number) => {
+    const options = [0.5, 1, 3, 5] as const;
+    return options.reduce((best, option) => {
+      return Math.abs(option - miles) < Math.abs(best - miles) ? option : best;
+    }, options[0]);
+  }, []);
+
+  const onMapRegionChangeComplete = useCallback((region: { latitudeDelta: number }) => {
+    if (!autoRadiusFromZoom || !searchLocation || !radiusConfirmed) return;
+
+    const visibleMilesApprox = Math.max(0.1, region.latitudeDelta * 69);
+    const suggestedRadius = nearestRadiusChip(visibleMilesApprox / 2);
+
+    if (suggestedRadius !== radiusMiles) {
+      setRadiusMiles(suggestedRadius);
+    }
+  }, [autoRadiusFromZoom, nearestRadiusChip, radiusConfirmed, radiusMiles, searchLocation]);
 
   const getDynamicMarkerOffsetPx = useCallback((snapPercent: number) => {
     const windowHeight = Dimensions.get('window').height;
@@ -268,7 +287,21 @@ export default function MapScreen() {
 
     const show = readSingleParam(params.showList as string | string[] | undefined);
     if (show === 'true') setViewMode('list');
-  }, [params.radius, params.showList]);
+
+    const locationLabel = readSingleParam(params.location as string | string[] | undefined);
+    if (locationLabel && locationLabel.trim().length > 0) {
+      setSearchText(locationLabel);
+    }
+  }, [params.location, params.radius, params.showList]);
+
+  useEffect(() => {
+    const nearMe = readSingleParam(params.nearMe as string | string[] | undefined) === 'true';
+    if (!nearMe || !focusCoordinate) return;
+
+    setSearchLocation(focusCoordinate);
+    setRadiusConfirmed(true);
+    setAutoRadiusFromZoom(true);
+  }, [focusCoordinate, params.nearMe]);
 
   const fetchSpots = useCallback(async () => {
     try {
@@ -892,6 +925,7 @@ export default function MapScreen() {
         style={styles.map}
         provider={PROVIDER_GOOGLE}
         onMapReady={() => setIsMapReady(true)}
+        onRegionChangeComplete={onMapRegionChangeComplete}
         initialRegion={{
           latitude: 37.7749,
           longitude: -122.4194,
@@ -1079,6 +1113,7 @@ export default function MapScreen() {
                 key={String(r)}
                 style={[styles.chip, active && [styles.chipActive, { backgroundColor: colors.primary }], { borderColor: colors.border }]}
                 onPress={() => {
+                  setAutoRadiusFromZoom(false);
                   setRadiusMiles(r);
                   if (searchLocation) {
                     setRadiusConfirmed(true);
@@ -1096,6 +1131,9 @@ export default function MapScreen() {
               </TouchableOpacity>
             );
           })}
+          {autoRadiusFromZoom && (
+            <Text style={[styles.autoRadiusLabel, { color: colors.textSecondary }]}>Auto</Text>
+          )}
         </View>
 
         <View style={styles.filterChips}>
@@ -1171,6 +1209,7 @@ export default function MapScreen() {
                     setSearchActive(false);
                     setSearchLocation({ lat: result.lat, lng: result.lng });
                     setRadiusConfirmed(true);
+                    setAutoRadiusFromZoom(false);
                     setViewMode('map');
                     mapRef?.animateToRegion({
                       latitude: result.lat,
@@ -1665,6 +1704,12 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  autoRadiusLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    opacity: 0.9,
+    marginLeft: 2,
   },
   listCardContent: { flex: 1, marginRight: SPACING.sm },
   listCardTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
